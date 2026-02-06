@@ -1,9 +1,5 @@
-import MissionScene from "@/components/MissionScene";
+import MissionCommandCenter from "@/components/MissionCommandCenter";
 
-export default function MissionViewPage() {
-  return (
-    <main className="w-screen h-screen overflow-hidden">
-      <MissionScene />
-    </main>
-  );
+export default async function MissionViewPage({ params }: { params: { id: string } }) {
+  return <MissionCommandCenter missionId={params.id} />;
 }
