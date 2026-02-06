@@ -97,9 +97,7 @@ function MissionCard({ m, highlight = false }: { m: Mission; highlight?: boolean
             {tMinus !== null && (
               <>
                 {" • "}
-                <span className="font-semibold text-white">
-                  T–{tMinus} min
-                </span>
+                <span className="font-semibold text-white">T–{tMinus} min</span>
               </>
             )}
           </div>
