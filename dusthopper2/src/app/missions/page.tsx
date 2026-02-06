@@ -1,21 +1,35 @@
 type Mission = {
   id: string;
-  provider: "spacex" | "nasa";
+  provider: "spacex" | "nasa" | "launchlibrary";
   name: string;
   status: string;
   startTime?: string | null;
   url?: string | null;
+  agency?: string | null;
 };
+
+function isUpcoming(m: Mission) {
+  if (!m.startTime) return false;
+  return Date.parse(m.startTime) > Date.now();
+}
 
 export default async function MissionsPage() {
   const res = await fetch("https://dusthopper2.space/api/missions", { cache: "no-store" });
   const data = await res.json();
 
-  const missions: Mission[] = (data?.missions ?? []).slice().sort((a: Mission, b: Mission) => {
-    const ta = a.startTime ? Date.parse(a.startTime) : 0;
-    const tb = b.startTime ? Date.parse(b.startTime) : 0;
-    return tb - ta;
-  });
+  const missions: Mission[] = data?.missions ?? [];
+
+  const upcoming = missions
+    .filter(isUpcoming)
+    .sort((a, b) => Date.parse(a.startTime!) - Date.parse(b.startTime!));
+
+  const completed = missions
+    .filter((m) => !isUpcoming(m))
+    .sort((a, b) => {
+      const ta = a.startTime ? Date.parse(a.startTime) : 0;
+      const tb = b.startTime ? Date.parse(b.startTime) : 0;
+      return tb - ta;
+    });
 
   return (
     <main className="p-8 max-w-4xl mx-auto">
@@ -26,44 +40,82 @@ export default async function MissionsPage() {
         </p>
       </div>
 
-      <div className="mt-6 grid gap-4">
-        {missions.map((m) => (
-          <div key={m.id} className="rounded-xl border border-neutral-800 bg-neutral-950 p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <div className="text-xs uppercase tracking-wider text-neutral-500">{m.provider}</div>
-                <div className="mt-1 text-xl font-semibold">{m.name}</div>
-                <div className="mt-2 text-sm text-neutral-400">
-                  Status: <span className="text-neutral-200">{m.status}</span>
-                  {m.startTime ? (
-                    <>
-                      {" • "}
-                      <span className="text-neutral-300">
-                        {new Date(m.startTime).toLocaleString()}
-                      </span>
-                    </>
-                  ) : null}
-                </div>
-              </div>
-
-              {m.url ? (
-                <a
-                  href={m.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="shrink-0 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black"
-                >
-                  Open
-                </a>
-              ) : null}
-            </div>
+      {upcoming.length > 0 && (
+        <>
+          <h2 className="mt-8 mb-3 text-lg font-semibold">🚀 Upcoming</h2>
+          <div className="grid gap-4">
+            {upcoming.map((m) => (
+              <MissionCard key={m.id} m={m} highlight />
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
 
-      <div className="mt-8 text-xs text-neutral-500">
-        Sources: NASA={String(!!data?.sources?.nasa)} • SpaceX={String(!!data?.sources?.spacex)}
-      </div>
+      {completed.length > 0 && (
+        <>
+          <h2 className="mt-10 mb-3 text-lg font-semibold">✅ Completed</h2>
+          <div className="grid gap-4">
+            {completed.map((m) => (
+              <MissionCard key={m.id} m={m} />
+            ))}
+          </div>
+        </>
+      )}
     </main>
+  );
+}
+
+function MissionCard({ m, highlight = false }: { m: Mission; highlight?: boolean }) {
+  const tMinus =
+    m.startTime && Date.parse(m.startTime) > Date.now()
+      ? Math.round((Date.parse(m.startTime) - Date.now()) / 60000)
+      : null;
+
+  return (
+    <div
+      className={[
+        "rounded-xl border p-5",
+        highlight ? "border-white bg-neutral-900" : "border-neutral-800 bg-neutral-950",
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-xs uppercase tracking-wider text-neutral-500">
+            {m.provider}{m.agency ? ` • ${m.agency}` : ""}
+          </div>
+          <div className="mt-1 text-xl font-semibold">{m.name}</div>
+          <div className="mt-2 text-sm text-neutral-400">
+            Status: <span className="text-neutral-200">{m.status}</span>
+            {m.startTime && (
+              <>
+                {" • "}
+                <span className="text-neutral-300">
+                  {new Date(m.startTime).toLocaleString()}
+                </span>
+              </>
+            )}
+            {tMinus !== null && (
+              <>
+                {" • "}
+                <span className="font-semibold text-white">
+                  T–{tMinus} min
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {m.url && (
+          <a
+            href={m.url}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-black"
+          >
+            Open
+          </a>
+        )}
+      </div>
+    </div>
   );
 }
