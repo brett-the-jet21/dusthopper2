@@ -10,7 +10,19 @@ export type NormalizedMission = {
 function pickFirstUrl(obj: any): string | null {
   if (!obj) return null;
   if (typeof obj === "string") return obj;
-  if (Array.isArray(obj) && obj.length) return String(obj[0]);
+  if (Array.isArray(obj) && obj.length) {
+    const first = obj[0];
+    if (typeof first === "string") return first;
+    if (first && typeof first === "object") {
+      if (typeof first.url === "string") return first.url;
+      if (typeof first.href === "string") return first.href;
+    }
+    return String(first);
+  }
+  if (obj && typeof obj === "object") {
+    if (typeof obj.url === "string") return obj.url;
+    if (typeof obj.href === "string") return obj.href;
+  }
   return null;
 }
 
