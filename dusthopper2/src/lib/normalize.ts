@@ -1,10 +1,16 @@
 export type NormalizedMission = {
   id: string;
-  provider: "spacex" | "nasa" | "launchlibrary";
+  provider: "spacex" | "nasa";
   name: string;
   status: string;
-  startTime?: string | null;
-  url?: string | null;
+  startTime?: string | null; // NET
+  agency?: string | null;
+  vehicle?: string | null;
+  pad?: string | null;
+  location?: string | null;
+
+  // Optional: keep for later, but UI won’t emphasize it
+  externalUrl?: string | null;
 };
 
 function pickFirstUrl(obj: any): string | null {
@@ -17,7 +23,7 @@ function pickFirstUrl(obj: any): string | null {
       if (typeof first.url === "string") return first.url;
       if (typeof first.href === "string") return first.href;
     }
-    return String(first);
+    return null;
   }
   if (obj && typeof obj === "object") {
     if (typeof obj.url === "string") return obj.url;
@@ -45,31 +51,42 @@ export function normalizeMissions(payload: any): NormalizedMission[] {
           ? "upcoming"
           : "unknown",
       startTime: sx.date_utc ?? null,
-      url: sx.links?.webcast ?? sx.links?.article ?? sx.links?.wikipedia ?? null,
+      agency: "SpaceX",
+      vehicle: sx?.rocket ?? null,
+      pad: sx?.launchpad ?? null,
+      location: null,
+      externalUrl: sx.links?.webcast ?? sx.links?.article ?? sx.links?.wikipedia ?? null,
     });
   }
 
-  // Launch Library 2 upcoming launches (treat as NASA/Agency mission feed)
+  // Launch Library 2 upcoming launches (we previously stored this in payload.data.nasa)
   const ll2 = payload?.data?.nasa;
   const launches = ll2?.results;
   if (Array.isArray(launches)) {
     for (const l of launches) {
-      // Simple NASA relevance: provider name contains "NASA" or mission mentions NASA.
-      const providerName = l?.launch_service_provider?.name ?? "";
+      const agency = l?.launch_service_provider?.name ?? null;
+
+      // keep “NASA-ish” filter (your call). Leaving as-is for now.
       const missionName = l?.mission?.name ?? "";
       const missionDesc = l?.mission?.description ?? "";
       const isNasaish =
-        /nasa/i.test(providerName) || /nasa/i.test(missionName) || /nasa/i.test(missionDesc);
+        /nasa/i.test(String(agency ?? "")) ||
+        /nasa/i.test(missionName) ||
+        /nasa/i.test(missionDesc);
 
       if (!isNasaish) continue;
 
       out.push({
         id: `ll2-${String(l.id)}`,
         provider: "nasa",
-        name: l.name ?? "NASA Launch",
+        name: l?.name ?? "NASA Launch",
         status: l?.status?.name ?? "upcoming",
-        startTime: l.net ?? l.window_start ?? null,
-        url: pickFirstUrl(l?.vidURLs) ?? l?.url ?? null,
+        startTime: l?.net ?? l?.window_start ?? null,
+        agency,
+        vehicle: l?.rocket?.configuration?.name ?? null,
+        pad: l?.pad?.name ?? null,
+        location: l?.pad?.location?.name ?? null,
+        externalUrl: pickFirstUrl(l?.vidURLs) ?? l?.url ?? null,
       });
     }
   }
