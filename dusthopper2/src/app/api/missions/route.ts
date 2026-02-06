@@ -1,5 +1,6 @@
 import { fetchNasaMissions } from "@/lib/nasa";
 import { fetchSpaceXMissions } from "@/lib/spacex";
+import { normalizeMissions } from "@/lib/normalize";
 
 export const runtime = "nodejs";
 
@@ -9,7 +10,7 @@ export async function GET() {
     fetchSpaceXMissions(),
   ]);
 
-  return Response.json({
+  const payload = {
     updatedAt: new Date().toISOString(),
     sources: {
       nasa: nasa.status === "fulfilled",
@@ -19,5 +20,10 @@ export async function GET() {
       nasa: nasa.status === "fulfilled" ? nasa.value : null,
       spacex: spacex.status === "fulfilled" ? spacex.value : null,
     },
+  };
+
+  return Response.json({
+    ...payload,
+    missions: normalizeMissions(payload),
   });
 }
