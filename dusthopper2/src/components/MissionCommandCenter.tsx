@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Stars, Html, Line } from "@react-three/drei";
 import * as THREE from "three";
@@ -41,10 +41,33 @@ function clamp(n: number, a: number, b: number) {
   return Math.max(a, Math.min(b, n));
 }
 
-function Scene({ mission, launchState }: { mission: Mission | null; launchState: string }) {
-  const rocketRef = useRefOnce<THREE.Group>();
+function CameraRig({
+  camPos,
+  camTarget,
+}: {
+  camPos: React.MutableRefObject<THREE.Vector3>;
+  camTarget: React.MutableRefObject<THREE.Vector3>;
+}) {
+  useFrame(({ camera }) => {
+    camera.position.lerp(camPos.current, 0.08);
+    camera.lookAt(camTarget.current);
+  });
+  return null;
+}
 
-  // Orbit line points
+function Scene({
+  mission,
+  launchState,
+  camPos,
+  camTarget,
+}: {
+  mission: Mission | null;
+  launchState: string;
+  camPos: React.MutableRefObject<THREE.Vector3>;
+  camTarget: React.MutableRefObject<THREE.Vector3>;
+}) {
+  const rocketRef = useRef<THREE.Group>(null);
+
   const orbitPoints = useMemo(() => {
     const pts: THREE.Vector3[] = [];
     const a = 3.35;
@@ -82,13 +105,10 @@ function Scene({ mission, launchState }: { mission: Mission | null; launchState:
       <directionalLight position={[7, 6, 7]} intensity={1.25} />
       <pointLight position={[-7, 2, -7]} intensity={0.7} />
 
-      {/* Real-ish Earth */}
       <Earth radius={1.55} />
 
-      {/* Orbit */}
       <Line points={orbitPoints} lineWidth={2} color="white" transparent opacity={0.35} />
 
-      {/* Rocket */}
       <group ref={rocketRef} position={rocketPos.toArray()}>
         <mesh>
           <cylinderGeometry args={[0.08, 0.08, 0.9, 24]} />
@@ -122,15 +142,9 @@ function Scene({ mission, launchState }: { mission: Mission | null; launchState:
         </div>
       </Html>
 
-      <OrbitControls
-        enablePan
-        enableZoom
-        enableRotate
-        zoomSpeed={0.7}
-        rotateSpeed={0.55}
-        minDistance={2.2}
-        maxDistance={22}
-      />
+      <CameraRig camPos={camPos} camTarget={camTarget} />
+
+      <OrbitControls enablePan enableZoom enableRotate zoomSpeed={0.7} rotateSpeed={0.55} minDistance={2.2} maxDistance={22} />
     </>
   );
 }
@@ -138,6 +152,9 @@ function Scene({ mission, launchState }: { mission: Mission | null; launchState:
 export default function MissionCommandCenter({ missionId }: { missionId: string }) {
   const [data, setData] = useState<Api | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  const camPos = useRef(new THREE.Vector3(0, 2.4, 7));
+  const camTarget = useRef(new THREE.Vector3(0, 0, 0));
 
   async function load() {
     try {
@@ -181,10 +198,23 @@ export default function MissionCommandCenter({ missionId }: { missionId: string 
   const tLabel =
     tMinus === null ? "—" : tMinus >= 0 ? `T–${tMinus} min` : `T+${Math.abs(tMinus)} min`;
 
+  function presetEarth() {
+    camPos.current.set(0, 2.4, 7);
+    camTarget.current.set(0, 0, 0);
+  }
+  function presetRocket() {
+    camPos.current.set(2.2, 1.4, 2.2);
+    camTarget.current.set(2.0, 0.65, 2.0);
+  }
+  function presetOrbit() {
+    camPos.current.set(0, 6.5, 0.1);
+    camTarget.current.set(0, 0, 0);
+  }
+
   return (
     <div className="w-screen h-screen overflow-hidden bg-black text-white">
       <Canvas camera={{ position: [0, 2.4, 7], fov: 60 }}>
-        <Scene mission={mission} launchState={launchState} />
+        <Scene mission={mission} launchState={launchState} camPos={camPos} camTarget={camTarget} />
       </Canvas>
 
       <div className="pointer-events-none absolute inset-0">
@@ -193,6 +223,18 @@ export default function MissionCommandCenter({ missionId }: { missionId: string 
             <a href="/missions" className="inline-flex w-fit rounded-lg bg-white/10 px-3 py-2 text-xs border border-white/10 hover:bg-white/15">
               ← Live Missions
             </a>
+
+            <div className="flex gap-2 text-xs">
+              <button onClick={presetEarth} className="px-3 py-1 rounded bg-white/10 border border-white/10 hover:bg-white/15">
+                Earth
+              </button>
+              <button onClick={presetRocket} className="px-3 py-1 rounded bg-white/10 border border-white/10 hover:bg-white/15">
+                Rocket
+              </button>
+              <button onClick={presetOrbit} className="px-3 py-1 rounded bg-white/10 border border-white/10 hover:bg-white/15">
+                Orbit
+              </button>
+            </div>
 
             <div
               className={[
@@ -283,9 +325,4 @@ function Row({ k, v }: { k: string; v: string }) {
       <div className="text-right">{v}</div>
     </div>
   );
-}
-
-function useRefOnce<T extends THREE.Object3D>() {
-  const ref = useMemo(() => ({ current: null as unknown as T }), []);
-  return ref as any;
 }

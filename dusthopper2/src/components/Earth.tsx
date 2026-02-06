@@ -15,28 +15,16 @@ export default function Earth({ radius = 1.55 }: { radius?: number }) {
 
   return (
     <group>
-      {/* Earth */}
       <mesh ref={earthRef}>
         <sphereGeometry args={[radius, 96, 96]} />
-        <meshStandardMaterial
-          color="#0b3d91"
-          roughness={0.85}
-          metalness={0.05}
-        />
+        <meshStandardMaterial color="#0b3d91" roughness={0.85} metalness={0.05} />
       </mesh>
 
-      {/* Clouds */}
       <mesh ref={cloudsRef}>
         <sphereGeometry args={[radius * 1.015, 96, 96]} />
-        <meshStandardMaterial
-          color="white"
-          transparent
-          opacity={0.12}
-          depthWrite={false}
-        />
+        <meshStandardMaterial color="white" transparent opacity={0.12} depthWrite={false} />
       </mesh>
 
-      {/* Atmosphere glow */}
       <mesh>
         <sphereGeometry args={[radius * 1.06, 96, 96]} />
         <meshBasicMaterial
@@ -45,6 +33,7 @@ export default function Earth({ radius = 1.55 }: { radius?: number }) {
           opacity={0.18}
           blending={THREE.AdditiveBlending}
           side={THREE.BackSide}
+          depthWrite={false}
         />
       </mesh>
     </group>
