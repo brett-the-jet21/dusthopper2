@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Stars, Html, Line } from "@react-three/drei";
 import * as THREE from "three";
+import Earth from "@/components/Earth";
 
 type Mission = {
   id: string;
@@ -40,81 +41,72 @@ function clamp(n: number, a: number, b: number) {
   return Math.max(a, Math.min(b, n));
 }
 
-function Scene({ mission }: { mission: Mission | null }) {
-  const earthRef = (globalThis as any).__earthRef ?? ( (globalThis as any).__earthRef = { current: null as any } );
-  const rocketRef = (globalThis as any).__rocketRef ?? ( (globalThis as any).__rocketRef = { current: null as any } );
+function Scene({ mission, launchState }: { mission: Mission | null; launchState: string }) {
+  const rocketRef = useRefOnce<THREE.Group>();
 
-  // Orbit line points (simple ellipse-ish in XZ plane)
+  // Orbit line points
   const orbitPoints = useMemo(() => {
     const pts: THREE.Vector3[] = [];
-    const a = 3.2; // radius x
-    const b = 2.2; // radius z
-    for (let i = 0; i <= 128; i++) {
-      const t = (i / 128) * Math.PI * 2;
-      pts.push(new THREE.Vector3(Math.cos(t) * a, 0.6, Math.sin(t) * b));
+    const a = 3.35;
+    const b = 2.35;
+    for (let i = 0; i <= 160; i++) {
+      const t = (i / 160) * Math.PI * 2;
+      pts.push(new THREE.Vector3(Math.cos(t) * a, 0.65, Math.sin(t) * b));
     }
     return pts;
   }, []);
 
-  // Rocket position along orbit based on T-minus / time
   const rocketPos = useMemo(() => {
-    // if upcoming: move rocket slowly toward "launch point"
     const tm = minutesUntil(mission?.startTime ?? null);
-    const phase = tm === null ? 0.15 : clamp(1 - tm / (24 * 60), 0, 1); // 0..1 over last 24h
+    const phase = tm === null ? 0.15 : clamp(1 - tm / (24 * 60), 0, 1);
     const angle = phase * Math.PI * 2 * 0.85 + 0.6;
-    return new THREE.Vector3(Math.cos(angle) * 3.2, 0.6, Math.sin(angle) * 2.2);
+    return new THREE.Vector3(Math.cos(angle) * 3.35, 0.65, Math.sin(angle) * 2.35);
   }, [mission?.startTime]);
 
   useFrame((_, dt) => {
-    if (earthRef.current) earthRef.current.rotation.y += dt * 0.12;
     if (rocketRef.current) {
       rocketRef.current.rotation.y += dt * 0.8;
       rocketRef.current.rotation.z = Math.sin(Date.now() / 700) * 0.06;
     }
   });
 
+  const engineIntensity =
+    launchState === "final" ? 3.0 : launchState === "imminent" ? 1.8 : 1.1;
+  const engineColor = launchState === "final" ? "#ff0000" : "#ff6b00";
+
   return (
     <>
-      <Stars radius={300} depth={60} count={2500} factor={7} />
+      <Stars radius={300} depth={60} count={2600} factor={7} />
 
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[6, 6, 6]} intensity={1.2} />
-      <pointLight position={[-6, 2, -6]} intensity={0.6} />
+      <ambientLight intensity={0.55} />
+      <directionalLight position={[7, 6, 7]} intensity={1.25} />
+      <pointLight position={[-7, 2, -7]} intensity={0.7} />
 
-      {/* Earth */}
-      <mesh ref={(r) => (earthRef.current = r)} position={[0, 0, 0]}>
-        <sphereGeometry args={[1.55, 64, 64]} />
-        <meshStandardMaterial color="#1e90ff" roughness={0.8} metalness={0.1} />
-      </mesh>
+      {/* Real-ish Earth */}
+      <Earth radius={1.55} />
 
       {/* Orbit */}
-      <Line
-        points={orbitPoints}
-        lineWidth={2}
-        color="white"
-        transparent
-        opacity={0.35}
-      />
+      <Line points={orbitPoints} lineWidth={2} color="white" transparent opacity={0.35} />
 
-      {/* Rocket (primitive model) */}
-      <group ref={(r) => (rocketRef.current = r)} position={rocketPos.toArray()}>
-        {/* body */}
+      {/* Rocket */}
+      <group ref={rocketRef} position={rocketPos.toArray()}>
         <mesh>
           <cylinderGeometry args={[0.08, 0.08, 0.9, 24]} />
-          <meshStandardMaterial color="white" metalness={0.5} roughness={0.35} />
+          <meshStandardMaterial color="white" metalness={0.55} roughness={0.35} />
         </mesh>
-        {/* nose */}
         <mesh position={[0, 0.55, 0]}>
           <coneGeometry args={[0.09, 0.22, 24]} />
-          <meshStandardMaterial color="white" metalness={0.4} roughness={0.3} />
+          <meshStandardMaterial color="white" metalness={0.45} roughness={0.3} />
         </mesh>
-        {/* engine glow */}
         <mesh position={[0, -0.55, 0]}>
           <coneGeometry args={[0.08, 0.18, 24]} />
-          <meshStandardMaterial color="#ff6b00" emissive="#ff6b00" emissiveIntensity={1.2} />
+          <meshStandardMaterial
+            color={engineColor}
+            emissive={engineColor}
+            emissiveIntensity={engineIntensity}
+          />
         </mesh>
 
-        {/* 3D label */}
         <Html distanceFactor={10} position={[0.35, 0.2, 0]}>
           <div className="rounded-lg bg-black/70 px-3 py-2 text-xs text-white border border-white/10 backdrop-blur">
             <div className="font-semibold">{mission?.name ?? "Mission"}</div>
@@ -123,7 +115,6 @@ function Scene({ mission }: { mission: Mission | null }) {
         </Html>
       </group>
 
-      {/* Earth label */}
       <Html distanceFactor={12} position={[0, 1.9, 0]}>
         <div className="rounded-lg bg-black/70 px-3 py-2 text-xs text-white border border-white/10 backdrop-blur">
           <div className="font-semibold">Earth</div>
@@ -138,7 +129,7 @@ function Scene({ mission }: { mission: Mission | null }) {
         zoomSpeed={0.7}
         rotateSpeed={0.55}
         minDistance={2.2}
-        maxDistance={20}
+        maxDistance={22}
       />
     </>
   );
@@ -154,7 +145,7 @@ export default function MissionCommandCenter({ missionId }: { missionId: string 
       const res = await fetch("/api/missions", { cache: "no-store" });
       const json = await res.json();
       setData(json);
-    } catch (e: any) {
+    } catch {
       setErr("Feed error");
     }
   }
@@ -176,17 +167,26 @@ export default function MissionCommandCenter({ missionId }: { missionId: string 
   }, [data, missionId]);
 
   const tMinus = minutesUntil(mission?.startTime ?? null);
+  const launchState =
+    tMinus === null
+      ? "unknown"
+      : tMinus <= 0
+      ? "launched"
+      : tMinus <= 10
+      ? "final"
+      : tMinus <= 60
+      ? "imminent"
+      : "normal";
+
   const tLabel =
     tMinus === null ? "—" : tMinus >= 0 ? `T–${tMinus} min` : `T+${Math.abs(tMinus)} min`;
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-black text-white">
-      {/* 3D canvas */}
       <Canvas camera={{ position: [0, 2.4, 7], fov: 60 }}>
-        <Scene mission={mission} />
+        <Scene mission={mission} launchState={launchState} />
       </Canvas>
 
-      {/* Command UI overlay */}
       <div className="pointer-events-none absolute inset-0">
         <div className="pointer-events-auto absolute top-6 left-6 right-6 flex items-start justify-between gap-4">
           <div className="flex flex-col gap-2">
@@ -194,10 +194,20 @@ export default function MissionCommandCenter({ missionId }: { missionId: string 
               ← Live Missions
             </a>
 
-            <div className="rounded-2xl border border-white/10 bg-black/55 backdrop-blur px-5 py-4 max-w-xl">
+            <div
+              className={[
+                "rounded-2xl border backdrop-blur px-5 py-4 max-w-xl transition-colors",
+                launchState === "final"
+                  ? "border-red-500 bg-red-950/70"
+                  : launchState === "imminent"
+                  ? "border-yellow-400 bg-yellow-950/60"
+                  : "border-white/10 bg-black/55",
+              ].join(" ")}
+            >
               <div className="text-xs uppercase tracking-wider opacity-70">
                 DustHopper2 • Mission Command
               </div>
+
               <div className="mt-2 text-2xl font-bold">
                 {mission?.name ?? "Loading mission..."}
               </div>
@@ -206,7 +216,7 @@ export default function MissionCommandCenter({ missionId }: { missionId: string 
                 <Badge label={mission?.provider?.toUpperCase() ?? "—"} />
                 <Badge label={mission?.agency ?? "—"} />
                 <Badge label={mission?.status ?? "—"} />
-                <Badge label={tLabel} strong />
+                <Badge label={tLabel} strong warn={launchState === "imminent"} danger={launchState === "final"} />
               </div>
 
               <div className="mt-4 grid gap-1 text-sm text-white/85">
@@ -237,9 +247,30 @@ export default function MissionCommandCenter({ missionId }: { missionId: string 
   );
 }
 
-function Badge({ label, strong }: { label: string; strong?: boolean }) {
+function Badge({
+  label,
+  strong,
+  danger,
+  warn,
+}: {
+  label: string;
+  strong?: boolean;
+  danger?: boolean;
+  warn?: boolean;
+}) {
   return (
-    <span className={["rounded-full border border-white/10 px-3 py-1", strong ? "bg-white text-black font-semibold" : "bg-white/5"].join(" ")}>
+    <span
+      className={[
+        "rounded-full border px-3 py-1 transition-colors",
+        danger
+          ? "bg-red-500 text-white border-red-400 animate-pulse"
+          : warn
+          ? "bg-yellow-400 text-black border-yellow-300"
+          : strong
+          ? "bg-white text-black border-white/10"
+          : "bg-white/5 text-white border-white/10",
+      ].join(" ")}
+    >
       {label}
     </span>
   );
@@ -252,4 +283,9 @@ function Row({ k, v }: { k: string; v: string }) {
       <div className="text-right">{v}</div>
     </div>
   );
+}
+
+function useRefOnce<T extends THREE.Object3D>() {
+  const ref = useMemo(() => ({ current: null as unknown as T }), []);
+  return ref as any;
 }
