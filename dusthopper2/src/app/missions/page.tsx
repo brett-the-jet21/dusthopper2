@@ -1,7 +1,5 @@
 export default async function MissionsPage() {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/missions`, {
-    cache: "no-store"
-  })
+  const res = await fetch("/api/missions", { cache: "no-store" })
   const data = await res.json()
 
   return (
