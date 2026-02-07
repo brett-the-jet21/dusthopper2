@@ -1,18 +1,32 @@
+import Link from "next/link";
+
+const missions = [
+  { id: "starship-flight-7", name: "Starship Flight 7", provider: "SpaceX", status: "LIVE" },
+  { id: "crew-9", name: "Crew-9 ISS Mission", provider: "NASA", status: "UPCOMING" },
+];
+
 export default function Home() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center text-center p-8">
-      <h1 className="text-5xl font-bold tracking-tight">
-        DustHopper<span className="text-neutral-400">2</span>
-      </h1>
-      <p className="mt-6 max-w-xl text-lg text-neutral-400">
-        Live mission data, orbital tracking, and real-time space activity.
-      </p>
-      <a
-        href="/missions"
-        className="mt-8 rounded bg-white text-black px-6 py-3 font-semibold"
-      >
-        View Live Missions
-      </a>
+    <main className="min-h-screen bg-black text-white p-6">
+      <h1 className="text-3xl font-bold mb-6">🚀 DustHopper2 — Mission Control</h1>
+
+      <div className="grid gap-4">
+        {missions.map((m) => (
+          <Link
+            key={m.id}
+            href={`/mission/${m.id}`}
+            className="border border-zinc-700 rounded p-4 hover:bg-zinc-900 transition"
+          >
+            <div className="flex justify-between">
+              <span className="font-semibold">{m.name}</span>
+              <span className={`text-sm ${m.status === "LIVE" ? "text-green-400" : "text-yellow-400"}`}>
+                {m.status}
+              </span>
+            </div>
+            <div className="text-zinc-400 text-sm">{m.provider}</div>
+          </Link>
+        ))}
+      </div>
     </main>
-  )
+  );
 }
