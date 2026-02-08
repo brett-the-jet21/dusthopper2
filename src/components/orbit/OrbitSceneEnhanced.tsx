@@ -1,10 +1,11 @@
 "use client";
 
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Line } from "@react-three/drei";
+import { Canvas, useFrame, useThree, useLoader } from "@react-three/fiber";
+import { OrbitControls, Line, useGLTF } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, Suspense } from "react";
 import * as THREE from "three";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 
 import { EarthPro } from "./EarthPro";
 import { StarsField } from "./StarsField";
@@ -27,19 +28,192 @@ function generateOrbitPath(altitude: number, inclination: number) {
   return points;
 }
 
-// Simple bright point with glow - what you'd actually see from space
-function SpacecraftPoint({ color }: { color: string }) {
+// Detailed procedural ISS - looks MUCH better
+function DetailedISS() {
+  const groupRef = useRef<THREE.Group>(null);
+  
+  useFrame(() => {
+    if (groupRef.current) {
+      groupRef.current.rotation.y += 0.002;
+    }
+  });
+  
   return (
-    <group>
+    <group ref={groupRef} scale={0.6}>
+      {/* Main truss backbone */}
       <mesh>
-        <sphereGeometry args={[0.15, 16, 16]} />
-        <meshBasicMaterial color={color} />
+        <boxGeometry args={[3.5, 0.15, 0.15]} />
+        <meshStandardMaterial color="#c8c8c8" metalness={0.9} roughness={0.2} />
       </mesh>
-      <pointLight color={color} intensity={8} distance={8} />
+      
+      {/* Pressurized modules cluster */}
+      <group position={[0, 0, 0]}>
+        <mesh position={[-0.8, 0, 0]} rotation={[0, 0, Math.PI/2]}>
+          <cylinderGeometry args={[0.22, 0.22, 1.5]} />
+          <meshStandardMaterial color="#f0f0f0" metalness={0.7} roughness={0.3} />
+        </mesh>
+        <mesh position={[0.8, 0, 0]} rotation={[0, 0, Math.PI/2]}>
+          <cylinderGeometry args={[0.25, 0.25, 1.8]} />
+          <meshStandardMaterial color="#e8e8e8" metalness={0.65} roughness={0.35} />
+        </mesh>
+        <mesh position={[0, 0, 0.4]} rotation={[Math.PI/2, 0, 0]}>
+          <cylinderGeometry args={[0.18, 0.18, 0.8]} />
+          <meshStandardMaterial color="#d8d8d8" metalness={0.7} roughness={0.4} />
+        </mesh>
+      </group>
+      
+      {/* PORT solar arrays (4 wings) */}
+      <group position={[-2, 0, 0]}>
+        <mesh position={[0, 0.15, 0]}>
+          <boxGeometry args={[2.5, 0.02, 1.2]} />
+          <meshStandardMaterial color="#0a2540" metalness={0.98} roughness={0.02} emissive="#1a5080" emissiveIntensity={0.2} />
+        </mesh>
+        <mesh position={[0, 0.45, 0]}>
+          <boxGeometry args={[2.5, 0.02, 1.2]} />
+          <meshStandardMaterial color="#0a2540" metalness={0.98} roughness={0.02} emissive="#1a5080" emissiveIntensity={0.2} />
+        </mesh>
+      </group>
+      
+      {/* STARBOARD solar arrays (4 wings) */}
+      <group position={[2, 0, 0]}>
+        <mesh position={[0, 0.15, 0]}>
+          <boxGeometry args={[2.5, 0.02, 1.2]} />
+          <meshStandardMaterial color="#0a2540" metalness={0.98} roughness={0.02} emissive="#1a5080" emissiveIntensity={0.2} />
+        </mesh>
+        <mesh position={[0, 0.45, 0]}>
+          <boxGeometry args={[2.5, 0.02, 1.2]} />
+          <meshStandardMaterial color="#0a2540" metalness={0.98} roughness={0.02} emissive="#1a5080" emissiveIntensity={0.2} />
+        </mesh>
+      </group>
+      
+      {/* Thermal radiators - gold */}
+      <mesh position={[0.6, 0.4, 0]}>
+        <boxGeometry args={[1, 0.02, 0.4]} />
+        <meshStandardMaterial color="#ffd700" metalness={0.95} roughness={0.15} />
+      </mesh>
+      <mesh position={[-0.6, 0.4, 0]}>
+        <boxGeometry args={[1, 0.02, 0.4]} />
+        <meshStandardMaterial color="#ffd700" metalness={0.95} roughness={0.15} />
+      </mesh>
+      
+      {/* Canadarm2 */}
+      <mesh rotation={[0, 0, Math.PI/5]} position={[0.4, 0.3, 0.2]}>
+        <cylinderGeometry args={[0.04, 0.04, 2]} />
+        <meshStandardMaterial color="#b0b0b0" metalness={0.85} roughness={0.3} />
+      </mesh>
+      
+      {/* Columbus module */}
+      <mesh position={[0, 0, -0.5]} rotation={[Math.PI/2, 0, 0]}>
+        <cylinderGeometry args={[0.2, 0.2, 0.8]} />
+        <meshStandardMaterial color="#e0e0e0" metalness={0.7} roughness={0.35} />
+      </mesh>
+      
+      {/* Glow */}
+      <pointLight color="#00ffcc" intensity={6} distance={12} />
       <mesh>
-        <sphereGeometry args={[0.3, 16, 16]} />
-        <meshBasicMaterial color={color} transparent opacity={0.4} />
+        <sphereGeometry args={[1.2, 32, 32]} />
+        <meshBasicMaterial color="#00ffcc" transparent opacity={0.1} />
       </mesh>
+    </group>
+  );
+}
+
+// Detailed Starship
+function DetailedStarship() {
+  const groupRef = useRef<THREE.Group>(null);
+  
+  useFrame(() => {
+    if (groupRef.current) {
+      groupRef.current.rotation.y += 0.003;
+    }
+  });
+  
+  return (
+    <group ref={groupRef} scale={0.4}>
+      {/* Main body - stainless steel */}
+      <mesh>
+        <cylinderGeometry args={[0.35, 0.35, 3, 32]} />
+        <meshStandardMaterial color="#d8d8d8" metalness={0.98} roughness={0.12} />
+      </mesh>
+      
+      {/* Nose cone */}
+      <mesh position={[0, 1.9, 0]}>
+        <coneGeometry args={[0.35, 1, 32]} />
+        <meshStandardMaterial color="#d0d0d0" metalness={0.98} roughness={0.1} />
+      </mesh>
+      
+      {/* Heat shield tiles */}
+      <mesh position={[0, 0.5, 0]}>
+        <cylinderGeometry args={[0.36, 0.36, 1.5, 32]} />
+        <meshStandardMaterial color="#1a1a1a" metalness={0.2} roughness={0.95} />
+      </mesh>
+      
+      {/* Forward flaps */}
+      <mesh position={[0.5, 0.8, 0]} rotation={[0, 0, Math.PI/7]}>
+        <boxGeometry args={[0.8, 0.06, 0.35]} />
+        <meshStandardMaterial color="#909090" metalness={0.9} roughness={0.25} />
+      </mesh>
+      <mesh position={[-0.5, 0.8, 0]} rotation={[0, 0, -Math.PI/7]}>
+        <boxGeometry args={[0.8, 0.06, 0.35]} />
+        <meshStandardMaterial color="#909090" metalness={0.9} roughness={0.25} />
+      </mesh>
+      
+      {/* Aft flaps */}
+      <mesh position={[0.55, -1.2, 0]} rotation={[0, 0, Math.PI/6]}>
+        <boxGeometry args={[1, 0.06, 0.4]} />
+        <meshStandardMaterial color="#888888" metalness={0.9} roughness={0.25} />
+      </mesh>
+      <mesh position={[-0.55, -1.2, 0]} rotation={[0, 0, -Math.PI/6]}>
+        <boxGeometry args={[1, 0.06, 0.4]} />
+        <meshStandardMaterial color="#888888" metalness={0.9} roughness={0.25} />
+      </mesh>
+      
+      {/* Raptor engines */}
+      <group position={[0, -1.7, 0]}>
+        <mesh position={[0.15, 0, 0.15]}>
+          <cylinderGeometry args={[0.1, 0.12, 0.2]} />
+          <meshStandardMaterial color="#505050" metalness={0.95} roughness={0.2} />
+        </mesh>
+        <mesh position={[-0.15, 0, 0.15]}>
+          <cylinderGeometry args={[0.1, 0.12, 0.2]} />
+          <meshStandardMaterial color="#505050" metalness={0.95} roughness={0.2} />
+        </mesh>
+        <mesh position={[0, 0, -0.15]}>
+          <cylinderGeometry args={[0.1, 0.12, 0.2]} />
+          <meshStandardMaterial color="#505050" metalness={0.95} roughness={0.2} />
+        </mesh>
+      </group>
+      
+      <pointLight color="#ffaa00" intensity={6} distance={10} />
+      <mesh>
+        <sphereGeometry args={[0.8, 32, 32]} />
+        <meshBasicMaterial color="#ffaa00" transparent opacity={0.12} />
+      </mesh>
+    </group>
+  );
+}
+
+// Detailed Starlink
+function DetailedStarlink() {
+  return (
+    <group scale={0.35}>
+      <mesh>
+        <boxGeometry args={[1, 0.12, 0.6]} />
+        <meshStandardMaterial color="#2a2a2a" metalness={0.92} roughness={0.18} />
+      </mesh>
+      <mesh position={[0, 0.18, 0]}>
+        <boxGeometry args={[1.4, 0.02, 0.5]} />
+        <meshStandardMaterial color="#0d2847" metalness={0.98} roughness={0.05} emissive="#2066aa" emissiveIntensity={0.25} />
+      </mesh>
+      <mesh position={[0.3, -0.1, 0]}>
+        <cylinderGeometry args={[0.025, 0.025, 0.2]} />
+        <meshStandardMaterial color="#c0c0c0" metalness={0.95} />
+      </mesh>
+      <mesh position={[-0.3, -0.1, 0]}>
+        <cylinderGeometry args={[0.025, 0.025, 0.2]} />
+        <meshStandardMaterial color="#c0c0c0" metalness={0.95} />
+      </mesh>
+      <pointLight color="#00ff88" intensity={4} distance={6} />
     </group>
   );
 }
@@ -62,16 +236,26 @@ function OrbitingSpacecraft({ mission, index, timeScale, onPositionUpdate }: any
       const z = radius * Math.sin(angle) * Math.cos(inclinationRad);
       
       groupRef.current.position.set(x, y, z);
+      
+      const nextAngle = angle + 0.01;
+      const nextX = radius * Math.cos(nextAngle);
+      const nextZ = radius * Math.sin(nextAngle) * Math.cos(inclinationRad);
+      groupRef.current.lookAt(nextX, y, nextZ);
+      
       onPositionUpdate([x, y, z]);
     }
   });
   
   const orbitPath = useMemo(() => generateOrbitPath(mission.alt, mission.inclination), [mission]);
   
+  const Model = mission.model === 'iss' ? DetailedISS : mission.model === 'starship' ? DetailedStarship : DetailedStarlink;
+  
   return (
     <group ref={groupRef}>
-      <Line points={orbitPath} color={mission.color} lineWidth={2} transparent opacity={0.6} />
-      <SpacecraftPoint color={mission.color} />
+      <Line points={orbitPath} color={mission.color} lineWidth={2} transparent opacity={0.55} />
+      <Suspense fallback={null}>
+        <Model />
+      </Suspense>
     </group>
   );
 }
@@ -81,11 +265,14 @@ function RotatingEarth({ timeScale }: { timeScale: number }) {
   
   useFrame((state, delta) => {
     if (earthRef.current && timeScale > 0) {
-      // ONE FULL ROTATION = 86400 seconds
-      // At 1× real-time, should rotate 360° in 86400 seconds
-      // That's (2π / 86400) radians per second
-      const rotationSpeed = (Math.PI * 2) / 86400;
-      earthRef.current.rotation.y += rotationSpeed * delta * timeScale;
+      // ACTUAL CALCULATION:
+      // Earth rotates 360° in 24 hours = 86400 seconds
+      // Radians per second = (2 * PI) / 86400 = 0.0000727220522 rad/s
+      // This is TINY - at 60fps (delta ~0.0166s), rotation per frame = 0.0000012 radians
+      // So at 1× you won't see ANY movement - it's realistic!
+      const SECONDS_PER_DAY = 86400;
+      const radiansPerSecond = (Math.PI * 2) / SECONDS_PER_DAY;
+      earthRef.current.rotation.y += radiansPerSecond * delta * timeScale;
     }
   });
   
@@ -121,9 +308,9 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   const [spacecraftPositions, setSpacecraftPositions] = useState<any[]>([]);
   
   const missions = useMemo(() => [
-    { name: "ISS", color: "#00ffcc", alt: 408, inclination: 51.6 },
-    { name: "STARSHIP HLS-1", color: "#ffaa00", alt: 350, inclination: 28.5 },
-    { name: "STARLINK-6548", color: "#00ff88", alt: 550, inclination: 53 },
+    { name: "ISS", color: "#00ffcc", alt: 408, inclination: 51.6, model: 'iss' },
+    { name: "STARSHIP HLS-1", color: "#ffaa00", alt: 350, inclination: 28.5, model: 'starship' },
+    { name: "STARLINK-6548", color: "#00ff88", alt: 550, inclination: 53, model: 'starlink' },
   ], []);
   
   const updatePosition = (index: number) => (pos: any) => {
@@ -139,10 +326,10 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
       <Canvas camera={{ position: [0, 10, 20], fov: 50 }}>
-        <color attach="background" args={["#000005"]} />
-        <ambientLight intensity={0.25} />
-        <directionalLight position={[30, 20, 10]} intensity={6} castShadow />
-        <pointLight position={[0, 0, 0]} intensity={4} distance={100} />
+        <color attach="background" args={["#000008"]} />
+        <ambientLight intensity={0.3} />
+        <directionalLight position={[30, 20, 10]} intensity={7} castShadow />
+        <pointLight position={[0, 0, 0]} intensity={5} distance={120} />
         
         <StarsField />
         <RotatingEarth timeScale={playing ? timeScale : 0} />
@@ -154,7 +341,7 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         <SpaceCamera target={spacecraftPositions[selectedMission]} enabled={!freeCam} />
         
         <EffectComposer>
-          <Bloom intensity={2.8} luminanceThreshold={0.05} luminanceSmoothing={0.9} />
+          <Bloom intensity={3} luminanceThreshold={0.05} luminanceSmoothing={0.9} />
         </EffectComposer>
         
         <OrbitControls enabled={freeCam} enableDamping dampingFactor={0.05} />
@@ -188,7 +375,7 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{opacity:0.7}}>VELOCITY 🇺🇸</span><span style={{fontWeight:700,color:'#0ff'}}>{velocityMph} mph</span></div>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{opacity:0.7}}>INCLINATION</span><span style={{fontWeight:700,color:'#0ff'}}>{missions[selectedMission].inclination}°</span></div>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:14}}><span style={{opacity:0.7}}>PERIOD</span><span style={{fontWeight:700,color:'#0ff'}}>~90 min</span></div>
-        <div style={{borderTop:'1px solid rgba(0,200,255,0.2)',paddingTop:12}}><div style={{opacity:0.6,fontSize:10,marginBottom:4}}>TIME SCALE</div><div style={{fontWeight:700,fontSize:16,color:'#00ff88'}}>{timeScale}× {timeScale===1&&'🦅'}</div></div>
+        <div style={{borderTop:'1px solid rgba(0,200,255,0.2)',paddingTop:12}}><div style={{opacity:0.6,fontSize:10,marginBottom:4}}>TIME SCALE</div><div style={{fontWeight:700,fontSize:16,color:'#00ff88'}}>{timeScale}× {timeScale===1&&'🦅 REAL'}</div></div>
       </div>
     </div>
   );
