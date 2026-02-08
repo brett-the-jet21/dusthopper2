@@ -1,0 +1,26 @@
+
+> dusthopper2@0.1.0 build
+> next build
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 7.7s
+  Running TypeScript ...
+Failed to compile.
+
+./src/components/orbit/OrbitTrail.tsx:61:11
+Type error: Type 'RefObject<Line<BufferGeometry<NormalBufferAttributes, BufferGeometryEventMap>, Material | Material[], Object3DEventMap> | null>' is not assignable to type 'Ref<SVGLineElement> | undefined'.
+  Type 'RefObject<Line<BufferGeometry<NormalBufferAttributes, BufferGeometryEventMap>, Material | Material[], Object3DEventMap> | null>' is not assignable to type 'RefObject<SVGLineElement | null>'.
+    Type 'Line<BufferGeometry<NormalBufferAttributes, BufferGeometryEventMap>, Material | Material[], Object3DEventMap> | null' is not assignable to type 'SVGLineElement | null'.
+      Type 'Line<BufferGeometry<NormalBufferAttributes, BufferGeometryEventMap>, Material | Material[], Object3DEventMap>' is missing the following properties from type 'SVGLineElement': x1, x2, y1, y2, and 296 more.
+
+[0m [90m 59 |[39m
+ [90m 60 |[39m   [36mreturn[39m (
+[31m[1m>[22m[39m[90m 61 |[39m     [33m<[39m[33mline[39m ref[33m=[39m{lineRef}[33m>[39m
+ [90m    |[39m           [31m[1m^[22m[39m
+ [90m 62 |[39m       [33m<[39m[33mbufferGeometry[39m ref[33m=[39m{geomRef} [33m/[39m[33m>[39m
+ [90m 63 |[39m       [33m<[39m[33mlineBasicMaterial[39m transparent opacity[33m=[39m{[35m0.55[39m} [33m/[39m[33m>[39m
+ [90m 64 |[39m     [33m<[39m[33m/[39m[33mline[39m[33m>[39m[0m
+Next.js build worker exited with code: 1 and signal: null

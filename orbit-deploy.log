@@ -1,0 +1,5 @@
+Vercel CLI 50.13.2
+Retrieving project…
+> Prebuilt deployment cannot be created because `vercel build` failed with error:
+
+Error: Command "npm run build" exited with 1

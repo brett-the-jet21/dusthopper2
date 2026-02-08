@@ -1,0 +1,39 @@
+Vercel CLI 50.13.2
+WARN! Build not running on Vercel. System environment variables will not be available.
+WARNING: You should not upload the `.next` directory.
+Installing dependencies...
+
+up to date in 709ms
+
+148 packages are looking for funding
+  run `npm fund` for details
+Detected Next.js version: 16.1.6
+Running "npm run build"
+
+> dusthopper2@0.1.0 build
+> next build
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 6.2s
+  Running TypeScript ...
+  Collecting page data using 1 worker ...
+  Generating static pages using 1 worker (0/2) ...
+✓ Generating static pages using 1 worker (2/2) in 76.5ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /_not-found
+└ ƒ /mission/[id]/view
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+Tracing initial Next.js server files due to missing build trace: 9.284s
+Traced Next.js server files in: 9.911s
+Created all serverless functions in: 96.455ms
+Collected static files (public/, static/, .next/static): 3.226ms
+Build Completed in .vercel/output [24s]

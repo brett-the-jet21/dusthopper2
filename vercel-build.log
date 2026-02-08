@@ -1,0 +1,62 @@
+Vercel CLI 50.13.2
+> [debug] [2026-02-07T05:50:49.063Z] user supplied known subcommand: "build"
+> [debug] [2026-02-07T05:50:49.177Z] Found git root via "git rev-parse --show-toplevel" - detected "/workspaces/dusthopper2" as repo root
+WARN! Build not running on Vercel. System environment variables will not be available.
+> [debug] [2026-02-07T05:50:49.190Z] Failed loading environment variables: Error: ENOENT: no such file or directory, open '/workspaces/dusthopper2/.vercel/.env.preview.local'
+> [debug] [2026-02-07T05:50:49.216Z] Locating files /workspaces/dusthopper2
+> [debug] [2026-02-07T05:50:49.217Z] Ignoring /workspaces/dusthopper2/.env.local
+> [debug] [2026-02-07T05:50:49.217Z] Ignoring /workspaces/dusthopper2/.git
+> [debug] [2026-02-07T05:50:49.218Z] Ignoring /workspaces/dusthopper2/.gitignore
+> [debug] [2026-02-07T05:50:49.218Z] Ignoring /workspaces/dusthopper2/.next
+> [debug] [2026-02-07T05:50:49.218Z] Ignoring /workspaces/dusthopper2/.vercel
+> [debug] [2026-02-07T05:50:49.219Z] Ignoring /workspaces/dusthopper2/node_modules
+> [debug] [2026-02-07T05:50:49.220Z] Ignoring /workspaces/dusthopper2/dusthopper2/.env.local
+> [debug] [2026-02-07T05:50:49.220Z] Ignoring /workspaces/dusthopper2/dusthopper2/.gitignore
+> [debug] [2026-02-07T05:50:49.220Z] Ignoring /workspaces/dusthopper2/dusthopper2/.next
+> [debug] [2026-02-07T05:50:49.220Z] Ignoring /workspaces/dusthopper2/dusthopper2/.vercel
+> [debug] [2026-02-07T05:50:49.221Z] Ignoring /workspaces/dusthopper2/dusthopper2/node_modules
+> [debug] [2026-02-07T05:50:49.224Z] Locating files /workspaces/dusthopper2 [8ms]
+> [debug] [2026-02-07T05:50:49.275Z] Imported Builder "@vercel/next" from "/usr/local/share/nvm/versions/node/v24.11.1/lib/node_modules/vercel/node_modules/@vercel/next"
+> [debug] [2026-02-07T05:50:49.280Z] Setting env VERCEL_PROJECT_SETTINGS_NODE_VERSION to "24.x"
+> [debug] [2026-02-07T05:50:49.280Z] Building entrypoint "package.json" with "@vercel/next"
+WARNING: You should not upload the `.next` directory.
+Installing dependencies...
+
+up to date in 788ms
+
+148 packages are looking for funding
+  run `npm fund` for details
+Detected Next.js version: 16.1.6
+Running "npm run build"
+
+> dusthopper2@0.1.0 build
+> next build
+
+▲ Next.js 16.1.6 (Turbopack)
+- Environments: .env.local
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 6.0s
+  Running TypeScript ...
+  Collecting page data using 1 worker ...
+  Generating static pages using 1 worker (0/2) ...
+✓ Generating static pages using 1 worker (2/2) in 76.9ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /_not-found
+└ ƒ /mission/[id]/view
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
+Tracing initial Next.js server files due to missing build trace: 9.310s
+Traced Next.js server files in: 9.943s
+Created all serverless functions in: 107.82ms
+Collected static files (public/, static/, .next/static): 3.336ms
+Build Completed in .vercel/output [24s]
+> [debug] [2026-02-07T05:51:13.497Z] Vercel CLI 50.13.2
+
+> [debug] [2026-02-07T05:51:13.802Z] Telemetry event tracked
+> [debug] [2026-02-07T05:51:13.824Z] Telemetry subprocess exited with code 0
