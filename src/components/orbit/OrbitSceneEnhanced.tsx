@@ -1,48 +1,76 @@
 "use client";
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { OrbitControls, Line } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo, useRef } from "react";
 import * as THREE from "three";
 
 import { EarthPro } from "./EarthPro";
 import { StarsField } from "./StarsField";
 import { CraftMarker } from "./CraftMarker";
-import { OrbitRibbon } from "./OrbitRibbon";
 import { latLonAltToXYZ } from "@/lib/orbitMath";
 
-function AnimatedSpacecraft({ mission, index, isSelected, onPositionUpdate }: any) {
+// Generate orbital path points
+function generateOrbitPath(alt: number, inclination: number = 0) {
+  const points = [];
+  const segments = 128;
+  for (let i = 0; i <= segments; i++) {
+    const angle = (i / segments) * Math.PI * 2;
+    const lat = Math.sin(angle) * inclination;
+    const lon = (angle * 180) / Math.PI;
+    points.push(new THREE.Vector3(...latLonAltToXYZ(lat, lon, alt)));
+  }
+  return points;
+}
+
+function AnimatedSpacecraft({ mission, index, onPositionUpdate }: any) {
   const groupRef = useRef<THREE.Group>(null);
   
   useFrame((state) => {
     if (groupRef.current) {
-      const time = state.clock.elapsedTime * 0.1; // SLOWER
-      const speed = 0.15 + (index * 0.05); // SLOWER
-      const lat = Math.sin(time * speed) * 60;
-      const lon = (time * speed * 30) % 360;
+      // REALISTIC ORBITAL SPEED: ISS orbits Earth every 90 minutes
+      const orbitalPeriod = 90 * 60; // 90 minutes in seconds
+      const time = state.clock.elapsedTime;
+      const progress = (time / orbitalPeriod) % 1;
+      const angle = progress * Math.PI * 2;
+      
+      const lat = Math.sin(angle) * mission.inclination;
+      const lon = (angle * 180) / Math.PI;
       const pos = latLonAltToXYZ(lat, lon, mission.alt);
+      
       groupRef.current.position.set(...pos);
       onPositionUpdate(pos);
     }
   });
   
+  // Show orbital path
+  const orbitPath = useMemo(() => generateOrbitPath(mission.alt, mission.inclination), [mission]);
+  
   return (
     <group ref={groupRef}>
+      {/* Orbital path line */}
+      <Line points={orbitPath} color={mission.color} lineWidth={1} transparent opacity={0.4} />
+      
+      {/* Spacecraft */}
       <CraftMarker position={[0, 0, 0]} />
+      
+      {/* Velocity vector */}
+      <arrowHelper args={[new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, 0), 2, mission.color]} />
     </group>
   );
 }
 
-function TrackingCamera({ target, enabled }: any) {
+function SpaceCamera({ target, enabled }: any) {
   const { camera } = useThree();
   
   useFrame(() => {
     if (enabled && target) {
       const targetPos = new THREE.Vector3(...target);
-      const offset = new THREE.Vector3(0, 5, 15);
+      // Position camera as if observing from nearby spacecraft
+      const offset = new THREE.Vector3(3, 2, 8);
       const desiredPos = targetPos.clone().add(offset);
-      camera.position.lerp(desiredPos, 0.05);
+      camera.position.lerp(desiredPos, 0.03);
       camera.lookAt(targetPos);
     }
   });
@@ -53,19 +81,13 @@ function TrackingCamera({ target, enabled }: any) {
 export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   const [freeCam, setFreeCam] = useState(false);
   const [playing, setPlaying] = useState(true);
-  const [selectedMission, setSelectedMission] = useState(2);
+  const [selectedMission, setSelectedMission] = useState(0);
   const [spacecraftPositions, setSpacecraftPositions] = useState<any[]>([]);
   
   const missions = useMemo(() => [
-    { name: "LUNAR GATEWAY", color: "#00ffcc", alt: 450 },
-    { name: "VOYAGER EXPRESS", color: "#ffaa00", alt: 550 },
-    { name: "STARLINK-X42", color: "#00ff88", alt: 340 },
-  ], []);
-  
-  const groundStations = useMemo(() => [
-    latLonAltToXYZ(28.5, -80.6, 0),
-    latLonAltToXYZ(-23, -43, 0),
-    latLonAltToXYZ(35.7, 139.7, 0),
+    { name: "ISS", color: "#00ffcc", alt: 408, inclination: 51.6, realData: true },
+    { name: "STARSHIP HLS-1", color: "#ffaa00", alt: 350, inclination: 28.5, realData: false },
+    { name: "STARLINK-6548", color: "#00ff88", alt: 550, inclination: 53, realData: false },
   ], []);
   
   const updatePosition = (index: number) => (pos: any) => {
@@ -78,40 +100,46 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
-      <Canvas camera={{ position: [0, 0, 25], fov: 50 }}>
-        <color attach="background" args={["#000510"]} />
-        <ambientLight intensity={0.25} />
-        <directionalLight position={[15, 10, 10]} intensity={3.5} />
-        <pointLight position={[0, 0, 0]} intensity={1.5} distance={50} />
+      <Canvas camera={{ position: [0, 8, 18], fov: 55 }}>
+        <color attach="background" args={["#000008"]} />
+        <ambientLight intensity={0.15} />
+        <directionalLight position={[20, 15, 10]} intensity={4} castShadow />
+        <pointLight position={[0, 0, 0]} intensity={2} distance={60} />
         
         <StarsField />
+        
+        {/* Earth - NO ROTATION for realism */}
         <EarthPro />
         
         {playing && missions.map((m, i) => (
-          <AnimatedSpacecraft key={i} mission={m} index={i} isSelected={i === selectedMission} onPositionUpdate={updatePosition(i)} />
+          <AnimatedSpacecraft 
+            key={i} 
+            mission={m} 
+            index={i} 
+            onPositionUpdate={updatePosition(i)} 
+          />
         ))}
         
-        {spacecraftPositions.map((pos, i) => pos && groundStations.map((ground, j) => (
-          <OrbitRibbon key={`${i}-${j}`} from={ground} to={pos} colorA={missions[i].color} colorB={missions[i].color} opacity={i === selectedMission ? 0.9 : 0.3} />
-        )))}
-        
-        <TrackingCamera target={spacecraftPositions[selectedMission]} enabled={!freeCam} />
+        <SpaceCamera target={spacecraftPositions[selectedMission]} enabled={!freeCam} />
         
         <EffectComposer>
-          <Bloom intensity={2.5} luminanceThreshold={0.1} luminanceSmoothing={0.9} />
+          <Bloom intensity={1.8} luminanceThreshold={0.05} luminanceSmoothing={0.95} />
         </EffectComposer>
         
-        <OrbitControls enabled={freeCam} />
+        <OrbitControls enabled={freeCam} enablePan={true} />
       </Canvas>
       
-      <div style={{position:'fixed',top:20,left:'50%',transform:'translateX(-50%)',display:'flex',gap:12,background:'rgba(0,10,20,0.95)',padding:'14px 28px',borderRadius:12,border:'1px solid rgba(0,255,200,0.3)',boxShadow:'0 8px 32px rgba(0,0,0,0.8)',zIndex:100}}>
-        <button onClick={()=>setFreeCam(!freeCam)} style={{background:freeCam?'linear-gradient(135deg,#00ffcc,#00ccff)':'#333',color:freeCam?'#000':'#fff',border:'none',padding:'10px 20px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:13}}>{freeCam?'🎥 FREE':'🎯 TRACK'}</button>
-        <button onClick={()=>setPlaying(!playing)} style={{background:playing?'linear-gradient(135deg,#00ff88,#00cc66)':'linear-gradient(135deg,#ff6666,#ff3333)',color:'#000',border:'none',padding:'10px 20px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:13}}>{playing?'⏸ PAUSE':'▶ PLAY'}</button>
+      {/* CONTROLS */}
+      <div style={{position:'fixed',top:20,left:'50%',transform:'translateX(-50%)',display:'flex',gap:12,background:'rgba(5,10,15,0.95)',padding:'12px 24px',borderRadius:10,border:'1px solid rgba(0,200,255,0.25)',zIndex:100}}>
+        <button onClick={()=>setFreeCam(!freeCam)} style={{background:freeCam?'#00ccff':'#1a1a1a',color:freeCam?'#000':'#0cf',border:'1px solid #0cf',padding:'8px 18px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:12}}>{freeCam?'🎥 FREE':'🎯 TRACK'}</button>
+        <button onClick={()=>setPlaying(!playing)} style={{background:playing?'#00ff88':'#ff3333',color:'#000',border:'none',padding:'8px 18px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:12}}>{playing?'⏸ PAUSE':'▶ PLAY'}</button>
       </div>
       
-      <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',display:'flex',gap:16,zIndex:100}}>{missions.map((m,i)=><button key={i} onClick={()=>setSelectedMission(i)} style={{background:i===selectedMission?`linear-gradient(135deg,${m.color},${m.color}dd)`:'rgba(0,10,20,0.95)',color:i===selectedMission?'#000':'#fff',border:`2px solid ${m.color}`,padding:'12px 28px',borderRadius:10,cursor:'pointer',fontWeight:700,fontSize:13,boxShadow:i===selectedMission?`0 8px 24px ${m.color}60`:'0 4px 12px rgba(0,0,0,0.5)',transition:'all 0.3s'}}>{m.name}</button>)}</div>
+      {/* MISSION SELECT */}
+      <div style={{position:'fixed',bottom:20,left:'50%',transform:'translateX(-50%)',display:'flex',gap:12,zIndex:100}}>{missions.map((m,i)=><button key={i} onClick={()=>setSelectedMission(i)} style={{background:i===selectedMission?m.color:'rgba(5,10,15,0.95)',color:i===selectedMission?'#000':'#fff',border:`2px solid ${m.color}`,padding:'10px 20px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:11,boxShadow:i===selectedMission?`0 0 20px ${m.color}80`:'none'}}>{m.name}{m.realData&&' 🔴'}</button>)}</div>
       
-      <div style={{position:'fixed',top:24,right:24,width:220,background:'rgba(0,10,20,0.95)',border:'1px solid rgba(0,255,200,0.3)',borderRadius:12,padding:'16px 20px',color:'#00ffcc',fontSize:12,fontFamily:'monospace',boxShadow:'0 8px 32px rgba(0,0,0,0.8)',zIndex:100}}><div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14,paddingBottom:12,borderBottom:'1px solid rgba(0,255,200,0.2)'}}><div style={{width:8,height:8,borderRadius:'50%',background:'#00ff88',boxShadow:'0 0 10px rgba(0,255,136,0.8)'}}/><div style={{fontWeight:700,fontSize:13}}>{missions[selectedMission].name}</div></div><div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{opacity:0.7}}>ALTITUDE</span><span style={{fontWeight:700}}>{missions[selectedMission].alt} km</span></div><div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{opacity:0.7}}>VELOCITY</span><span style={{fontWeight:700}}>7.8 km/s</span></div><div style={{display:'flex',justifyContent:'space-between'}}><span style={{opacity:0.7}}>STATUS</span><span style={{color:'#00ff88',fontWeight:700}}>ACTIVE</span></div></div>
+      {/* TELEMETRY */}
+      <div style={{position:'fixed',top:20,right:20,width:240,background:'rgba(5,10,15,0.95)',border:'1px solid rgba(0,200,255,0.25)',borderRadius:10,padding:16,color:'#0cf',fontSize:11,fontFamily:'monospace',zIndex:100}}><div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12,paddingBottom:10,borderBottom:'1px solid rgba(0,200,255,0.15)'}}><div style={{width:6,height:6,borderRadius:'50%',background:'#0f8',boxShadow:'0 0 8px #0f8'}}/><div style={{fontWeight:700,fontSize:12}}>{missions[selectedMission].name}</div></div><div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}><span style={{opacity:0.6}}>ALTITUDE</span><span style={{fontWeight:600}}>{missions[selectedMission].alt} km</span></div><div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}><span style={{opacity:0.6}}>VELOCITY</span><span style={{fontWeight:600}}>7.66 km/s</span></div><div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}><span style={{opacity:0.6}}>INCLINATION</span><span style={{fontWeight:600}}>{missions[selectedMission].inclination}°</span></div><div style={{display:'flex',justifyContent:'space-between'}}><span style={{opacity:0.6}}>PERIOD</span><span style={{fontWeight:600}}>~90 min</span></div></div>
     </div>
   );
 }
