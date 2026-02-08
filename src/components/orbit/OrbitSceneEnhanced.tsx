@@ -3,7 +3,7 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Line, Sphere } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import { useState, useMemo, useRef, Suspense } from "react";
+import { useState, useMemo, useRef, Suspense, useEffect } from "react";
 import * as THREE from "three";
 
 import { EarthPro } from "./EarthPro";
@@ -11,7 +11,6 @@ import { StarsField } from "./StarsField";
 
 const EARTH_RADIUS = 6.371;
 
-// SUN - moved closer and brighter
 function Sun() {
   return (
     <group position={[80, 0, 0]}>
@@ -218,7 +217,6 @@ function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boole
   );
 }
 
-// FIXED: Camera with proper zoom
 function SpaceCamera({ target, enabled, zoom }: any) {
   const { camera } = useThree();
   
@@ -226,7 +224,7 @@ function SpaceCamera({ target, enabled, zoom }: any) {
     if (enabled && target && target.length === 3) {
       const targetPos = new THREE.Vector3(...target);
       const baseDistance = 15;
-      const distance = baseDistance / Math.max(zoom, 0.1); // Prevent division issues
+      const distance = baseDistance / Math.max(zoom, 0.1);
       const offset = targetPos.clone().normalize().multiplyScalar(distance);
       const verticalOffset = 5 / Math.max(zoom, 0.1);
       const desiredPos = offset.add(new THREE.Vector3(0, verticalOffset, 0));
@@ -245,6 +243,14 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   const [zoom, setZoom] = useState(1);
   const [selectedMission, setSelectedMission] = useState(0);
   const [spacecraftPositions, setSpacecraftPositions] = useState<any[]>([]);
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
   
   const missions = useMemo(() => [
     { 
@@ -328,15 +334,16 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         <OrbitControls enabled={freeCam} enableDamping dampingFactor={0.05} />
       </Canvas>
       
-      <div style={{position:'fixed',top:0,left:0,right:0,height:70,background:'linear-gradient(180deg, rgba(0,15,30,0.98) 0%, rgba(0,10,20,0.95) 100%)',borderBottom:'2px solid rgba(0,200,255,0.4)',display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 30px',zIndex:100,boxShadow:'0 4px 20px rgba(0,0,0,0.8)'}}>
-        <div style={{display:'flex',gap:15}}>
-          <button onClick={()=>setFreeCam(!freeCam)} style={{background:freeCam?'linear-gradient(135deg, #00ccff, #0099cc)':'rgba(10,20,30,0.8)',color:freeCam?'#000':'#0cf',border:'2px solid #0cf',padding:'12px 24px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:13,textTransform:'uppercase',letterSpacing:1,boxShadow:freeCam?'0 0 20px rgba(0,204,255,0.6)':'none',transition:'all 0.2s'}}>{freeCam?'🎥 FREE CAM':'🎯 TRACKING'}</button>
-          <button onClick={()=>setPlaying(!playing)} style={{background:playing?'linear-gradient(135deg, #00ff88, #00cc66)':'linear-gradient(135deg, #ff4444, #cc0000)',color:'#000',border:'none',padding:'12px 24px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:13,textTransform:'uppercase',letterSpacing:1,boxShadow:playing?'0 0 20px rgba(0,255,136,0.6)':'0 0 20px rgba(255,68,68,0.6)',transition:'all 0.2s'}}>{playing?'⏸ PAUSE':'▶ PLAY'}</button>
+      {/* MOBILE & DESKTOP HEADER */}
+      <div style={{position:'fixed',top:0,left:0,right:0,height:isMobile?60:70,background:'linear-gradient(180deg, rgba(0,15,30,0.98) 0%, rgba(0,10,20,0.95) 100%)',borderBottom:'2px solid rgba(0,200,255,0.4)',display:'flex',alignItems:'center',justifyContent:'space-between',padding:isMobile?'0 12px':'0 30px',zIndex:100,boxShadow:'0 4px 20px rgba(0,0,0,0.8)',flexWrap:isMobile?'wrap':'nowrap'}}>
+        <div style={{display:'flex',gap:isMobile?8:15,flexShrink:0}}>
+          <button onClick={()=>setFreeCam(!freeCam)} style={{background:freeCam?'linear-gradient(135deg, #00ccff, #0099cc)':'rgba(10,20,30,0.8)',color:freeCam?'#000':'#0cf',border:'2px solid #0cf',padding:isMobile?'8px 12px':'12px 24px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:isMobile?11:13,textTransform:'uppercase',letterSpacing:1,boxShadow:freeCam?'0 0 20px rgba(0,204,255,0.6)':'none',transition:'all 0.2s',whiteSpace:'nowrap'}}>{freeCam?(isMobile?'FREE':'🎥 FREE CAM'):(isMobile?'TRACK':'🎯 TRACKING')}</button>
+          <button onClick={()=>setPlaying(!playing)} style={{background:playing?'linear-gradient(135deg, #00ff88, #00cc66)':'linear-gradient(135deg, #ff4444, #cc0000)',color:'#000',border:'none',padding:isMobile?'8px 12px':'12px 24px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:isMobile?11:13,textTransform:'uppercase',letterSpacing:1,boxShadow:playing?'0 0 20px rgba(0,255,136,0.6)':'0 0 20px rgba(255,68,68,0.6)',transition:'all 0.2s',whiteSpace:'nowrap'}}>{playing?'⏸ PAUSE':'▶ PLAY'}</button>
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:12}}>
-          <span style={{color:'rgba(0,200,255,0.9)',fontSize:13,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase'}}>TIME SCALE</span>
-          <select value={timeScale} onChange={(e)=>setTimeScale(Number(e.target.value))} style={{background:'rgba(10,20,30,0.9)',color:'#0cf',border:'2px solid #0cf',padding:'10px 18px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:13,fontFamily:'monospace',letterSpacing:0.5}}>
-            <option value={1}>1× REAL-TIME</option>
+        <div style={{display:'flex',alignItems:'center',gap:isMobile?6:12}}>
+          <span style={{color:'rgba(0,200,255,0.9)',fontSize:isMobile?10:13,fontWeight:700,letterSpacing:1.5,textTransform:'uppercase',display:isMobile?'none':'inline'}}>TIME SCALE</span>
+          <select value={timeScale} onChange={(e)=>setTimeScale(Number(e.target.value))} style={{background:'rgba(10,20,30,0.9)',color:'#0cf',border:'2px solid #0cf',padding:isMobile?'6px 10px':'10px 18px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:isMobile?10:13,fontFamily:'monospace',letterSpacing:0.5}}>
+            <option value={1}>1× REAL</option>
             <option value={60}>60×</option>
             <option value={360}>360×</option>
             <option value={1440}>1440×</option>
@@ -345,25 +352,38 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         </div>
       </div>
       
-      <div style={{position:'fixed',left:25,top:'50%',transform:'translateY(-50%)',display:'flex',flexDirection:'column',gap:10,background:'rgba(0,15,30,0.95)',padding:15,borderRadius:8,border:'2px solid rgba(0,200,255,0.4)',zIndex:100,boxShadow:'0 8px 24px rgba(0,0,0,0.8)'}}>
-        <button onClick={()=>setZoom(z=>Math.min(z*1.3,4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'10px 16px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:20,lineHeight:1}}>+</button>
-        <div style={{color:'#0cf',fontSize:12,fontWeight:700,textAlign:'center',fontFamily:'monospace',padding:'5px 0'}}>{zoom.toFixed(1)}×</div>
-        <button onClick={()=>setZoom(z=>Math.max(z/1.3,0.4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'10px 16px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:20,lineHeight:1}}>−</button>
-      </div>
-      
-      <div style={{position:'fixed',bottom:25,left:'50%',transform:'translateX(-50%)',display:'flex',gap:18,zIndex:100}}>{missions.map((m,i)=><button key={i} onClick={()=>setSelectedMission(i)} style={{background:i===selectedMission?`linear-gradient(135deg,${m.color},${m.color}dd)`:'rgba(0,15,30,0.95)',color:i===selectedMission?'#000':'#fff',border:`2px solid ${m.color}`,padding:'14px 32px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',boxShadow:i===selectedMission?`0 0 30px ${m.color}80, 0 8px 20px rgba(0,0,0,0.8)`:'0 4px 12px rgba(0,0,0,0.6)',transition:'all 0.3s'}}>{m.name}</button>)}</div>
-      
-      <div style={{position:'fixed',top:90,right:25,width:280,background:'rgba(0,15,30,0.98)',border:'2px solid rgba(0,200,255,0.4)',borderRadius:10,padding:'20px 24px',color:'#0cf',fontSize:12,fontFamily:'monospace',boxShadow:'0 8px 32px rgba(0,0,0,0.9)',zIndex:100}}>
-        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:18,paddingBottom:16,borderBottom:'2px solid rgba(0,200,255,0.3)'}}>
-          <div style={{width:10,height:10,borderRadius:'50%',background:'#0f8',boxShadow:'0 0 15px #0f8'}}/>
-          <div style={{fontWeight:700,fontSize:15,letterSpacing:0.5}}>{missions[selectedMission].name}</div>
+      {/* ZOOM CONTROLS */}
+      {!isMobile && (
+        <div style={{position:'fixed',left:25,top:'50%',transform:'translateY(-50%)',display:'flex',flexDirection:'column',gap:10,background:'rgba(0,15,30,0.95)',padding:15,borderRadius:8,border:'2px solid rgba(0,200,255,0.4)',zIndex:100,boxShadow:'0 8px 24px rgba(0,0,0,0.8)'}}>
+          <button onClick={()=>setZoom(z=>Math.min(z*1.3,4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'10px 16px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:20,lineHeight:1}}>+</button>
+          <div style={{color:'#0cf',fontSize:12,fontWeight:700,textAlign:'center',fontFamily:'monospace',padding:'5px 0'}}>{zoom.toFixed(1)}×</div>
+          <button onClick={()=>setZoom(z=>Math.max(z/1.3,0.4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'10px 16px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:20,lineHeight:1}}>−</button>
         </div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>ALTITUDE</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>{missions[selectedMission].altitude} km</span></div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>VELOCITY</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>7.66 km/s</span></div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>VELOCITY 🇺🇸</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>{velocityMph} mph</span></div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>INCLINATION</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>{missions[selectedMission].inclination.toFixed(4)}°</span></div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:16,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>PERIOD</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>{missions[selectedMission].period.toFixed(1)} min</span></div>
-        <div style={{borderTop:'2px solid rgba(0,200,255,0.3)',paddingTop:14}}><div style={{opacity:0.7,fontSize:11,marginBottom:6,letterSpacing:0.5}}>TIME MULTIPLIER</div><div style={{fontWeight:700,fontSize:18,color:'#00ff88'}}>{timeScale}× {timeScale===1&&'🦅'}</div></div>
+      )}
+      
+      {/* MOBILE ZOOM (PINCH TO ZOOM GESTURES HANDLED BY OrbitControls) */}
+      {isMobile && (
+        <div style={{position:'fixed',left:10,bottom:100,display:'flex',flexDirection:'column',gap:8,background:'rgba(0,15,30,0.95)',padding:10,borderRadius:8,border:'2px solid rgba(0,200,255,0.4)',zIndex:100}}>
+          <button onClick={()=>setZoom(z=>Math.min(z*1.3,4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'8px 12px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:18,lineHeight:1}}>+</button>
+          <button onClick={()=>setZoom(z=>Math.max(z/1.3,0.4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'8px 12px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:18,lineHeight:1}}>−</button>
+        </div>
+      )}
+      
+      {/* MISSION SELECTOR */}
+      <div style={{position:'fixed',bottom:isMobile?10:25,left:'50%',transform:'translateX(-50%)',display:'flex',gap:isMobile?8:18,zIndex:100,flexWrap:'wrap',justifyContent:'center',maxWidth:isMobile?'90%':'auto'}}>{missions.map((m,i)=><button key={i} onClick={()=>setSelectedMission(i)} style={{background:i===selectedMission?`linear-gradient(135deg,${m.color},${m.color}dd)`:'rgba(0,15,30,0.95)',color:i===selectedMission?'#000':'#fff',border:`2px solid ${m.color}`,padding:isMobile?'8px 16px':'14px 32px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:isMobile?10:13,letterSpacing:1,textTransform:'uppercase',boxShadow:i===selectedMission?`0 0 30px ${m.color}80, 0 8px 20px rgba(0,0,0,0.8)`:'0 4px 12px rgba(0,0,0,0.6)',transition:'all 0.3s',whiteSpace:'nowrap'}}>{isMobile?m.name.split(' ')[0]:m.name}</button>)}</div>
+      
+      {/* TELEMETRY PANEL */}
+      <div style={{position:'fixed',top:isMobile?70:90,right:isMobile?10:25,width:isMobile?'calc(100% - 20px)':280,maxWidth:isMobile?400:280,background:'rgba(0,15,30,0.98)',border:'2px solid rgba(0,200,255,0.4)',borderRadius:10,padding:isMobile?'12px 16px':'20px 24px',color:'#0cf',fontSize:isMobile?10:12,fontFamily:'monospace',boxShadow:'0 8px 32px rgba(0,0,0,0.9)',zIndex:100}}>
+        <div style={{display:'flex',alignItems:'center',gap:isMobile?8:12,marginBottom:isMobile?12:18,paddingBottom:isMobile?10:16,borderBottom:'2px solid rgba(0,200,255,0.3)'}}>
+          <div style={{width:isMobile?8:10,height:isMobile?8:10,borderRadius:'50%',background:'#0f8',boxShadow:'0 0 15px #0f8'}}/>
+          <div style={{fontWeight:700,fontSize:isMobile?13:15,letterSpacing:0.5}}>{missions[selectedMission].name}</div>
+        </div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>ALTITUDE</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{missions[selectedMission].altitude} km</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>VELOCITY</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>7.66 km/s</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>VELOCITY 🇺🇸</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{velocityMph} mph</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>INCLINATION</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{missions[selectedMission].inclination.toFixed(4)}°</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?10:16,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>PERIOD</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{missions[selectedMission].period.toFixed(1)} min</span></div>
+        <div style={{borderTop:'2px solid rgba(0,200,255,0.3)',paddingTop:isMobile?10:14}}><div style={{opacity:0.7,fontSize:isMobile?9:11,marginBottom:isMobile?4:6,letterSpacing:0.5}}>TIME MULTIPLIER</div><div style={{fontWeight:700,fontSize:isMobile?16:18,color:'#00ff88'}}>{timeScale}× {timeScale===1&&'🦅'}</div></div>
       </div>
     </div>
   );
