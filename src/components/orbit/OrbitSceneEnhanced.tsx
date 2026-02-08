@@ -11,17 +11,38 @@ import { StarsField } from "./StarsField";
 
 const EARTH_RADIUS = 6.371;
 
-// SUN AS A STAR - small and BLINDING
+// PERFECT CIRCULAR ORBIT - no more ellipses!
+function generateCircularOrbit(altitude: number, inclination: number) {
+  const points: THREE.Vector3[] = [];
+  const radius = EARTH_RADIUS + (altitude / 100);
+  const incRad = (inclination * Math.PI) / 180;
+  const segments = 128;
+  
+  for (let i = 0; i <= segments; i++) {
+    const theta = (i / segments) * Math.PI * 2;
+    
+    // Start with a circle in the XY plane
+    const x = radius * Math.cos(theta);
+    const y = radius * Math.sin(theta);
+    const z = 0;
+    
+    // Rotate around X axis by inclination angle
+    const rotatedY = y * Math.cos(incRad) - z * Math.sin(incRad);
+    const rotatedZ = y * Math.sin(incRad) + z * Math.cos(incRad);
+    
+    points.push(new THREE.Vector3(x, rotatedY, rotatedZ));
+  }
+  
+  return points;
+}
+
 function Sun() {
   return (
     <group position={[100, 0, 0]}>
-      {/* Tiny bright core */}
       <Sphere args={[0.5, 32, 32]}>
         <meshBasicMaterial color="#ffffff" />
       </Sphere>
-      {/* MASSIVE light */}
       <pointLight color="#ffffff" intensity={200} distance={500} decay={1} />
-      {/* Bloom glow */}
       <Sphere args={[1.5, 32, 32]}>
         <meshBasicMaterial color="#ffffff" transparent opacity={0.8} />
       </Sphere>
@@ -77,48 +98,39 @@ function DetailedStarlink() {
   );
 }
 
-function OrbitingSpacecraft({ mission, index, timeScale, onPositionUpdate, onPathUpdate }: any) {
+function OrbitingSpacecraft({ mission, index, timeScale, onPositionUpdate }: any) {
   const groupRef = useRef<THREE.Group>(null);
-  const pathRef = useRef<THREE.Vector3[]>([]);
   
   useFrame((state) => {
     if (groupRef.current) {
       const orbitalPeriod = 90 * 60;
       const scaledTime = state.clock.elapsedTime * timeScale;
       const progress = (scaledTime / orbitalPeriod + (index * 0.33)) % 1;
-      const angle = progress * Math.PI * 2;
+      const theta = progress * Math.PI * 2;
       
-      const orbitRadius = EARTH_RADIUS + (mission.alt / 100);
+      const radius = EARTH_RADIUS + (mission.alt / 100);
       const incRad = (mission.inclination * Math.PI) / 180;
       
-      const x = orbitRadius * Math.cos(angle);
-      const z = orbitRadius * Math.sin(angle);
-      const y = z * Math.sin(incRad);
-      const adjustedZ = z * Math.cos(incRad);
+      // Circle in XY plane
+      const x = radius * Math.cos(theta);
+      const y = radius * Math.sin(theta);
+      const z = 0;
       
-      groupRef.current.position.set(x, y, adjustedZ);
+      // Rotate by inclination
+      const rotatedY = y * Math.cos(incRad) - z * Math.sin(incRad);
+      const rotatedZ = y * Math.sin(incRad) + z * Math.cos(incRad);
       
-      if (pathRef.current.length === 0) {
-        const points = [];
-        for (let i = 0; i <= 128; i++) {
-          const a = (i / 128) * Math.PI * 2;
-          const px = orbitRadius * Math.cos(a);
-          const pz = orbitRadius * Math.sin(a);
-          const py = pz * Math.sin(incRad);
-          const pAdjustedZ = pz * Math.cos(incRad);
-          points.push(new THREE.Vector3(px, py, pAdjustedZ));
-        }
-        pathRef.current = points;
-        onPathUpdate(index, points);
-      }
+      groupRef.current.position.set(x, rotatedY, rotatedZ);
       
-      const nextAngle = angle + 0.01;
-      const nextX = orbitRadius * Math.cos(nextAngle);
-      const nextZ = orbitRadius * Math.sin(nextAngle);
-      const nextAdjustedZ = nextZ * Math.cos(incRad);
-      groupRef.current.lookAt(nextX, y, nextAdjustedZ);
+      // Point forward
+      const nextTheta = theta + 0.01;
+      const nextX = radius * Math.cos(nextTheta);
+      const nextY = radius * Math.sin(nextTheta);
+      const nextRotatedY = nextY * Math.cos(incRad);
+      const nextRotatedZ = nextY * Math.sin(incRad);
+      groupRef.current.lookAt(nextX, nextRotatedY, nextRotatedZ);
       
-      onPositionUpdate([x, y, adjustedZ]);
+      onPositionUpdate([x, rotatedY, rotatedZ]);
     }
   });
   
@@ -131,7 +143,6 @@ function OrbitingSpacecraft({ mission, index, timeScale, onPositionUpdate, onPat
   );
 }
 
-// FIXED Earth rotation with proper time calculation
 function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boolean }) {
   const earthRef = useRef<THREE.Group>(null);
   const baseRotationRef = useRef<number | null>(null);
@@ -139,31 +150,20 @@ function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boole
   
   useFrame((state, delta) => {
     if (earthRef.current) {
-      // Initialize base rotation ONCE based on current UTC time
       if (baseRotationRef.current === null) {
         const now = new Date();
         const utcHours = now.getUTCHours();
         const utcMinutes = now.getUTCMinutes();
         const utcSeconds = now.getUTCSeconds();
         const totalUTCHours = utcHours + utcMinutes / 60 + utcSeconds / 3600;
-        
-        // Earth rotates 2π radians in 24 hours
-        // At UTC 0:00, rotation should be 0
-        // At UTC 12:00, rotation should be π
         baseRotationRef.current = (totalUTCHours / 24) * Math.PI * 2;
-        
-        console.log(`UTC Time: ${utcHours}:${utcMinutes}:${utcSeconds}`);
-        console.log(`Base rotation set to: ${baseRotationRef.current} radians (${(baseRotationRef.current * 180 / Math.PI).toFixed(1)}°)`);
       }
       
-      // Only add rotation if not paused and timeScale > 0
       if (!paused && timeScale > 0) {
-        // Earth completes 1 rotation (2π radians) in 86400 seconds
         const rotationPerSecond = (Math.PI * 2) / 86400;
         elapsedRef.current += delta * rotationPerSecond * timeScale;
       }
       
-      // Total rotation = base + elapsed
       earthRef.current.rotation.y = baseRotationRef.current + elapsedRef.current;
     }
   });
@@ -194,12 +194,11 @@ function SpaceCamera({ target, enabled, zoom }: any) {
 
 export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   const [freeCam, setFreeCam] = useState(false);
-  const [playing, setPlaying] = useState(false); // START PAUSED so we can see correct Earth position
+  const [playing, setPlaying] = useState(false);
   const [timeScale, setTimeScale] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [selectedMission, setSelectedMission] = useState(0);
   const [spacecraftPositions, setSpacecraftPositions] = useState<any[]>([]);
-  const [orbitPaths, setOrbitPaths] = useState<any[]>([]);
   
   const missions = useMemo(() => [
     { name: "ISS", color: "#00ffcc", alt: 408, inclination: 51.6, model: 'iss' },
@@ -207,19 +206,16 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
     { name: "STARLINK-6548", color: "#00ff88", alt: 550, inclination: 53, model: 'starlink' },
   ], []);
   
+  const orbitPaths = useMemo(() => 
+    missions.map(m => generateCircularOrbit(m.alt, m.inclination)),
+    [missions]
+  );
+  
   const updatePosition = (index: number) => (pos: any) => {
     setSpacecraftPositions(prev => {
       const newPos = [...prev];
       newPos[index] = pos;
       return newPos;
-    });
-  };
-  
-  const updatePath = (index: number, path: THREE.Vector3[]) => {
-    setOrbitPaths(prev => {
-      const newPaths = [...prev];
-      newPaths[index] = path;
-      return newPaths;
     });
   };
   
@@ -235,12 +231,20 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         <StarsField />
         <RotatingEarth timeScale={timeScale} paused={!playing} />
         
-        {orbitPaths.map((path, i) => path && (
-          <Line key={`path-${i}`} points={path} color={missions[i].color} lineWidth={2} transparent opacity={0.6} />
+        {/* Render orbit paths */}
+        {orbitPaths.map((path, i) => (
+          <Line key={`path-${i}`} points={path} color={missions[i].color} lineWidth={2} transparent opacity={0.7} />
         ))}
         
+        {/* Render spacecraft */}
         {missions.map((m, i) => (
-          <OrbitingSpacecraft key={i} mission={m} index={i} timeScale={playing ? timeScale : 0} onPositionUpdate={updatePosition(i)} onPathUpdate={updatePath} />
+          <OrbitingSpacecraft 
+            key={i} 
+            mission={m} 
+            index={i} 
+            timeScale={playing ? timeScale : 0} 
+            onPositionUpdate={updatePosition(i)} 
+          />
         ))}
         
         <SpaceCamera target={spacecraftPositions[selectedMission]} enabled={!freeCam} zoom={zoom} />
