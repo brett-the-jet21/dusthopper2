@@ -21,7 +21,7 @@ function generateOrbitPath(altitude: number, inclination: number) {
     const x = radius * Math.cos(theta);
     const y = radius * Math.sin(theta) * Math.sin(inclination * Math.PI / 180);
     const z = radius * Math.sin(theta) * Math.cos(inclination * Math.PI / 180);
-    points.push([x, y, z]);
+    points.push(new THREE.Vector3(x, y, z));
   }
   
   return points;
