@@ -1,7 +1,7 @@
 "use client";
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Sphere, Line } from "@react-three/drei";
+import { OrbitControls, Sphere, Line, Box, Cylinder } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { useState, useMemo, useRef } from "react";
 import * as THREE from "three";
@@ -27,41 +27,91 @@ function generateOrbitPath(altitude: number, inclination: number) {
   return points;
 }
 
-function Spacecraft({ color }: { color: string }) {
-  const meshRef = useRef<THREE.Group>(null);
+// PROPER ISS MODEL
+function ISSModel({ color }: { color: string }) {
+  const groupRef = useRef<THREE.Group>(null);
   
   useFrame(() => {
-    if (meshRef.current) {
-      meshRef.current.rotation.y += 0.02;
+    if (groupRef.current) {
+      groupRef.current.rotation.y += 0.005;
     }
   });
   
   return (
-    <group ref={meshRef}>
-      <Sphere args={[0.3, 16, 16]}>
-        <meshStandardMaterial 
-          color={color} 
-          emissive={color} 
-          emissiveIntensity={1.5}
-          metalness={0.8}
-          roughness={0.2}
-        />
+    <group ref={groupRef}>
+      {/* Main truss */}
+      <Box args={[2.5, 0.15, 0.15]} position={[0, 0, 0]}>
+        <meshStandardMaterial color="#c0c0c0" metalness={0.9} roughness={0.3} />
+      </Box>
+      
+      {/* Modules */}
+      <Cylinder args={[0.2, 0.2, 0.8, 16]} position={[0, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+        <meshStandardMaterial color="#e0e0e0" metalness={0.7} />
+      </Cylinder>
+      
+      {/* Solar panels - BIG */}
+      <Box args={[1.5, 0.02, 0.8]} position={[1.5, 0, 0]}>
+        <meshStandardMaterial color="#1a3d5c" metalness={0.95} roughness={0.1} emissive="#0a4d6b" emissiveIntensity={0.3} />
+      </Box>
+      <Box args={[1.5, 0.02, 0.8]} position={[-1.5, 0, 0]}>
+        <meshStandardMaterial color="#1a3d5c" metalness={0.95} roughness={0.1} emissive="#0a4d6b" emissiveIntensity={0.3} />
+      </Box>
+      
+      {/* Radiators */}
+      <Box args={[0.6, 0.02, 0.25]} position={[0.7, 0.3, 0]}>
+        <meshStandardMaterial color="#ffcc00" metalness={0.8} />
+      </Box>
+      <Box args={[0.6, 0.02, 0.25]} position={[-0.7, 0.3, 0]}>
+        <meshStandardMaterial color="#ffcc00" metalness={0.8} />
+      </Box>
+      
+      {/* Glow */}
+      <pointLight color={color} intensity={4} distance={8} />
+      <Sphere args={[0.8, 16, 16]}>
+        <meshBasicMaterial color={color} transparent opacity={0.15} />
       </Sphere>
+    </group>
+  );
+}
+
+// STARSHIP MODEL
+function StarshipModel({ color }: { color: string }) {
+  return (
+    <group>
+      {/* Main body */}
+      <Cylinder args={[0.15, 0.15, 1.2, 16]} rotation={[0, 0, 0]}>
+        <meshStandardMaterial color="#d0d0d0" metalness={0.9} roughness={0.2} />
+      </Cylinder>
       
-      <mesh position={[0.5, 0, 0]}>
-        <boxGeometry args={[0.8, 0.05, 0.4]} />
-        <meshStandardMaterial color="#1a4d7a" metalness={0.9} />
-      </mesh>
-      <mesh position={[-0.5, 0, 0]}>
-        <boxGeometry args={[0.8, 0.05, 0.4]} />
-        <meshStandardMaterial color="#1a4d7a" metalness={0.9} />
-      </mesh>
+      {/* Nose cone */}
+      <Cylinder args={[0, 0.15, 0.3, 16]} position={[0, 0.75, 0]}>
+        <meshStandardMaterial color="#c0c0c0" metalness={0.95} />
+      </Cylinder>
       
-      <pointLight color={color} intensity={3} distance={5} />
+      {/* Grid fins */}
+      <Box args={[0.3, 0.02, 0.15]} position={[0.2, 0.4, 0]}>
+        <meshStandardMaterial color="#888" metalness={0.8} />
+      </Box>
+      <Box args={[0.3, 0.02, 0.15]} position={[-0.2, 0.4, 0]}>
+        <meshStandardMaterial color="#888" metalness={0.8} />
+      </Box>
       
-      <Sphere args={[0.5, 16, 16]}>
-        <meshBasicMaterial color={color} transparent opacity={0.2} />
-      </Sphere>
+      <pointLight color={color} intensity={4} distance={6} />
+    </group>
+  );
+}
+
+// STARLINK MODEL
+function StarlinkModel({ color }: { color: string }) {
+  return (
+    <group>
+      <Box args={[0.4, 0.05, 0.25]}>
+        <meshStandardMaterial color="#222" metalness={0.9} />
+      </Box>
+      <Box args={[0.6, 0.01, 0.15]} position={[0, 0.1, 0]}>
+        <meshStandardMaterial color="#1a4d7a" metalness={0.95} emissive="#0066cc" emissiveIntensity={0.2} />
+      </Box>
+      <pointLight color={color} intensity={3} distance={4} />
     </group>
   );
 }
@@ -84,6 +134,13 @@ function OrbitingSpacecraft({ mission, index, timeScale, onPositionUpdate }: any
       const z = radius * Math.sin(angle) * Math.cos(inclinationRad);
       
       groupRef.current.position.set(x, y, z);
+      
+      // Point spacecraft along velocity vector
+      const nextAngle = angle + 0.01;
+      const nextX = radius * Math.cos(nextAngle);
+      const nextZ = radius * Math.sin(nextAngle) * Math.cos(inclinationRad);
+      groupRef.current.lookAt(nextX, y, nextZ);
+      
       onPositionUpdate([x, y, z]);
     }
   });
@@ -93,16 +150,12 @@ function OrbitingSpacecraft({ mission, index, timeScale, onPositionUpdate }: any
     [mission]
   );
   
+  const Model = mission.model === 'iss' ? ISSModel : mission.model === 'starship' ? StarshipModel : StarlinkModel;
+  
   return (
     <group ref={groupRef}>
-      <Line 
-        points={orbitPath} 
-        color={mission.color} 
-        lineWidth={2}
-        transparent
-        opacity={0.6}
-      />
-      <Spacecraft color={mission.color} />
+      <Line points={orbitPath} color={mission.color} lineWidth={1.5} transparent opacity={0.5} />
+      <Model color={mission.color} />
     </group>
   );
 }
@@ -111,10 +164,10 @@ function RotatingEarth({ timeScale }: { timeScale: number }) {
   const earthRef = useRef<THREE.Group>(null);
   
   useFrame((state) => {
-    if (earthRef.current) {
-      const dayDuration = 24 * 60 * 60;
-      const scaledTime = state.clock.elapsedTime * timeScale;
-      earthRef.current.rotation.y = (scaledTime / dayDuration) * Math.PI * 2;
+    if (earthRef.current && timeScale > 0) {
+      // REAL ROTATION: 24 hours = 86400 seconds
+      const realRotationSpeed = (2 * Math.PI) / 86400;
+      earthRef.current.rotation.y += realRotationSpeed * timeScale * (1/60); // Delta time approximation
     }
   });
   
@@ -145,14 +198,14 @@ function SpaceCamera({ target, enabled }: any) {
 export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   const [freeCam, setFreeCam] = useState(false);
   const [playing, setPlaying] = useState(true);
-  const [timeScale, setTimeScale] = useState(100);
+  const [timeScale, setTimeScale] = useState(1);
   const [selectedMission, setSelectedMission] = useState(0);
   const [spacecraftPositions, setSpacecraftPositions] = useState<any[]>([]);
   
   const missions = useMemo(() => [
-    { name: "ISS", color: "#00ffcc", alt: 408, inclination: 51.6 },
-    { name: "STARSHIP HLS-1", color: "#ffaa00", alt: 350, inclination: 28.5 },
-    { name: "STARLINK-6548", color: "#00ff88", alt: 550, inclination: 53 },
+    { name: "ISS", color: "#00ffcc", alt: 408, inclination: 51.6, model: 'iss' },
+    { name: "STARSHIP HLS-1", color: "#ffaa00", alt: 350, inclination: 28.5, model: 'starship' },
+    { name: "STARLINK-6548", color: "#00ff88", alt: 550, inclination: 53, model: 'starlink' },
   ], []);
   
   const updatePosition = (index: number) => (pos: any) => {
@@ -163,13 +216,15 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
     });
   };
   
+  const velocityMph = (7.66 * 0.621371 * 1000).toFixed(0); // km/s to mph
+  
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
       <Canvas camera={{ position: [0, 10, 20], fov: 50 }}>
         <color attach="background" args={["#000005"]} />
         <ambientLight intensity={0.2} />
         <directionalLight position={[30, 20, 10]} intensity={5} castShadow />
-        <pointLight position={[0, 0, 0]} intensity={3} distance={100} color="#ffffff" />
+        <pointLight position={[0, 0, 0]} intensity={3} distance={100} />
         
         <StarsField />
         <RotatingEarth timeScale={playing ? timeScale : 0} />
@@ -194,27 +249,28 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         <div style={{display:'flex',alignItems:'center',gap:10}}>
           <span style={{color:'rgba(0,200,255,0.8)',fontSize:12,fontWeight:700}}>TIME</span>
           <select value={timeScale} onChange={(e)=>setTimeScale(Number(e.target.value))} style={{background:'#1a1a1a',color:'#0cf',border:'1px solid #0cf',padding:'10px 16px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:12,fontFamily:'monospace'}}>
-            <option value={1}>1× REAL</option>
-            <option value={10}>10×</option>
-            <option value={100}>100×</option>
-            <option value={500}>500×</option>
-            <option value={1000}>1000×</option>
+            <option value={1}>1× REAL-TIME</option>
+            <option value={60}>60× (1 min = 1 sec)</option>
+            <option value={360}>360× (6 min = 1 sec)</option>
+            <option value={1440}>1440× (24 min = 1 sec)</option>
+            <option value={3600}>3600× (1 hr = 1 sec)</option>
           </select>
         </div>
       </div>
       
       <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',display:'flex',gap:16,zIndex:100}}>{missions.map((m,i)=><button key={i} onClick={()=>setSelectedMission(i)} style={{background:i===selectedMission?`linear-gradient(135deg,${m.color},${m.color}dd)`:'rgba(5,10,15,0.95)',color:i===selectedMission?'#000':'#fff',border:`2px solid ${m.color}`,padding:'12px 28px',borderRadius:10,cursor:'pointer',fontWeight:700,fontSize:12,boxShadow:i===selectedMission?`0 8px 24px ${m.color}80`:'0 4px 12px rgba(0,0,0,0.5)',transition:'all 0.3s'}}>{m.name}</button>)}</div>
       
-      <div style={{position:'fixed',top:24,right:24,width:240,background:'rgba(5,10,15,0.95)',border:'1px solid rgba(0,200,255,0.3)',borderRadius:12,padding:'18px 22px',color:'#0cf',fontSize:12,fontFamily:'monospace',boxShadow:'0 8px 32px rgba(0,0,0,0.8)',zIndex:100}}>
+      <div style={{position:'fixed',top:24,right:24,width:260,background:'rgba(5,10,15,0.95)',border:'1px solid rgba(0,200,255,0.3)',borderRadius:12,padding:'18px 22px',color:'#0cf',fontSize:12,fontFamily:'monospace',boxShadow:'0 8px 32px rgba(0,0,0,0.8)',zIndex:100}}>
         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16,paddingBottom:14,borderBottom:'1px solid rgba(0,200,255,0.2)'}}>
           <div style={{width:8,height:8,borderRadius:'50%',background:'#0f8',boxShadow:'0 0 12px #0f8'}}/>
           <div style={{fontWeight:700,fontSize:14}}>{missions[selectedMission].name}</div>
         </div>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{opacity:0.7}}>ALTITUDE</span><span style={{fontWeight:700,color:'#0ff'}}>{missions[selectedMission].alt} km</span></div>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{opacity:0.7}}>VELOCITY</span><span style={{fontWeight:700,color:'#0ff'}}>7.66 km/s</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{opacity:0.7}}>VELOCITY 🇺🇸</span><span style={{fontWeight:700,color:'#0ff'}}>{velocityMph} mph</span></div>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{opacity:0.7}}>INCLINATION</span><span style={{fontWeight:700,color:'#0ff'}}>{missions[selectedMission].inclination}°</span></div>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:14}}><span style={{opacity:0.7}}>PERIOD</span><span style={{fontWeight:700,color:'#0ff'}}>~90 min</span></div>
-        <div style={{borderTop:'1px solid rgba(0,200,255,0.2)',paddingTop:12}}><div style={{opacity:0.6,fontSize:10,marginBottom:4}}>TIME SCALE</div><div style={{fontWeight:700,fontSize:16,color:'#00ff88'}}>{timeScale}×</div></div>
+        <div style={{borderTop:'1px solid rgba(0,200,255,0.2)',paddingTop:12}}><div style={{opacity:0.6,fontSize:10,marginBottom:4}}>TIME SCALE</div><div style={{fontWeight:700,fontSize:16,color:'#00ff88'}}>{timeScale}× {timeScale===1&&'🇺🇸 REAL-TIME'}</div></div>
       </div>
     </div>
   );
