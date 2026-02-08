@@ -3,33 +3,24 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Line, Sphere } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import { useState, useMemo, useRef, Suspense, useEffect } from "react";
+import { useState, useMemo, useRef, Suspense } from "react";
 import * as THREE from "three";
-import * as satellite from 'satellite.js';
 
 import { EarthPro } from "./EarthPro";
 import { StarsField } from "./StarsField";
 
 const EARTH_RADIUS = 6.371;
 
-// REAL TLE DATA (Two-Line Elements) - updated regularly
-const TLE_DATA = {
-  ISS: {
-    line1: '1 25544U 98067A   24040.51602949  .00012345  00000+0  22176-3 0  9992',
-    line2: '2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391428943',
-  },
-  // For demo purposes, we'll calculate Starship and Starlink orbits mathematically
-};
-
+// SUN - moved closer and brighter
 function Sun() {
   return (
-    <group position={[100, 0, 0]}>
-      <Sphere args={[0.5, 32, 32]}>
+    <group position={[80, 0, 0]}>
+      <Sphere args={[1, 32, 32]}>
         <meshBasicMaterial color="#ffffff" />
       </Sphere>
-      <pointLight color="#ffffff" intensity={200} distance={500} decay={1} />
-      <Sphere args={[1.5, 32, 32]}>
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.8} />
+      <pointLight color="#ffffff" intensity={250} distance={400} decay={1} />
+      <Sphere args={[3, 32, 32]}>
+        <meshBasicMaterial color="#ffffff" transparent opacity={0.6} />
       </Sphere>
     </group>
   );
@@ -83,41 +74,33 @@ function DetailedStarlink() {
   );
 }
 
-// Calculate orbital position using Keplerian elements
 function calculateOrbitalPosition(
-  semiMajorAxis: number, // in Earth radii
+  semiMajorAxis: number,
   eccentricity: number,
-  inclination: number, // degrees
-  raan: number, // right ascension of ascending node, degrees
-  argOfPerigee: number, // argument of perigee, degrees
-  meanAnomaly: number // degrees
+  inclination: number,
+  raan: number,
+  argOfPerigee: number,
+  meanAnomaly: number
 ): THREE.Vector3 {
-  // Convert to radians
   const i = (inclination * Math.PI) / 180;
   const omega = (raan * Math.PI) / 180;
   const w = (argOfPerigee * Math.PI) / 180;
   const M = (meanAnomaly * Math.PI) / 180;
   
-  // Solve Kepler's equation for eccentric anomaly (simplified for near-circular)
   let E = M;
   for (let iter = 0; iter < 10; iter++) {
     E = M + eccentricity * Math.sin(E);
   }
   
-  // True anomaly
   const v = 2 * Math.atan2(
     Math.sqrt(1 + eccentricity) * Math.sin(E / 2),
     Math.sqrt(1 - eccentricity) * Math.cos(E / 2)
   );
   
-  // Distance from Earth center
   const r = semiMajorAxis * (1 - eccentricity * Math.cos(E));
-  
-  // Position in orbital plane
   const xOrbital = r * Math.cos(v);
   const yOrbital = r * Math.sin(v);
   
-  // Rotate to 3D space
   const cosW = Math.cos(w);
   const sinW = Math.sin(w);
   const cosOmega = Math.cos(omega);
@@ -133,14 +116,12 @@ function calculateOrbitalPosition(
            
   const z = (sinW * sinI) * xOrbital + (cosW * sinI) * yOrbital;
   
-  return new THREE.Vector3(x, z, -y); // Swap Y/Z for Three.js coordinates
+  return new THREE.Vector3(x, z, -y);
 }
 
-// Generate realistic orbit path
 function generateRealisticOrbit(mission: any): THREE.Vector3[] {
   const points: THREE.Vector3[] = [];
   const segments = 256;
-  
   const semiMajorAxis = EARTH_RADIUS + (mission.altitude / 100);
   const eccentricity = mission.eccentricity || 0.0001;
   const inclination = mission.inclination;
@@ -169,7 +150,7 @@ function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUp
   useFrame((state) => {
     if (groupRef.current) {
       const elapsed = state.clock.elapsedTime * timeScale;
-      const orbitalPeriod = mission.period * 60; // convert minutes to seconds
+      const orbitalPeriod = mission.period * 60;
       const progress = ((elapsed + startTime) / orbitalPeriod) % 1;
       const meanAnomaly = progress * 360;
       
@@ -185,7 +166,6 @@ function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUp
       
       groupRef.current.position.copy(pos);
       
-      // Point forward along velocity vector
       const nextMeanAnomaly = meanAnomaly + 1;
       const nextPos = calculateOrbitalPosition(
         semiMajorAxis,
@@ -238,15 +218,18 @@ function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boole
   );
 }
 
+// FIXED: Camera with proper zoom
 function SpaceCamera({ target, enabled, zoom }: any) {
   const { camera } = useThree();
   
   useFrame(() => {
     if (enabled && target && target.length === 3) {
       const targetPos = new THREE.Vector3(...target);
-      const distance = 15 / zoom;
+      const baseDistance = 15;
+      const distance = baseDistance / Math.max(zoom, 0.1); // Prevent division issues
       const offset = targetPos.clone().normalize().multiplyScalar(distance);
-      const desiredPos = offset.add(new THREE.Vector3(0, 5 / zoom, 0));
+      const verticalOffset = 5 / Math.max(zoom, 0.1);
+      const desiredPos = offset.add(new THREE.Vector3(0, verticalOffset, 0));
       camera.position.lerp(desiredPos, 0.03);
       camera.lookAt(targetPos);
     }
@@ -263,7 +246,6 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   const [selectedMission, setSelectedMission] = useState(0);
   const [spacecraftPositions, setSpacecraftPositions] = useState<any[]>([]);
   
-  // REAL mission parameters
   const missions = useMemo(() => [
     { 
       name: "ISS", 
@@ -273,7 +255,7 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
       eccentricity: 0.0006703,
       raan: 247.4627,
       argOfPerigee: 130.5360,
-      period: 92.68, // minutes
+      period: 92.68,
       model: 'iss' 
     },
     { 
@@ -314,9 +296,7 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   };
   
   const velocityMph = (7.66 * 0.621371 * 1000).toFixed(0);
-  
-  // Different start times for each spacecraft to spread them out
-  const startTimes = [0, 30 * 60, 60 * 60]; // 0, 30min, 60min offsets
+  const startTimes = [0, 30 * 60, 60 * 60];
   
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
@@ -324,7 +304,7 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         <color attach="background" args={["#000005"]} />
         <Sun />
         <ambientLight intensity={0.6} />
-        <directionalLight position={[100, 0, 0]} intensity={12} castShadow />
+        <directionalLight position={[80, 0, 0]} intensity={12} castShadow />
         <StarsField />
         <RotatingEarth timeScale={timeScale} paused={!playing} />
         
@@ -344,7 +324,7 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         ))}
         
         <SpaceCamera target={spacecraftPositions[selectedMission]} enabled={!freeCam} zoom={zoom} />
-        <EffectComposer><Bloom intensity={3} luminanceThreshold={0.15} luminanceSmoothing={0.9} /></EffectComposer>
+        <EffectComposer><Bloom intensity={3.5} luminanceThreshold={0.1} luminanceSmoothing={0.9} /></EffectComposer>
         <OrbitControls enabled={freeCam} enableDamping dampingFactor={0.05} />
       </Canvas>
       
