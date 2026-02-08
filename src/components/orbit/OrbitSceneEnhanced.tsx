@@ -1,7 +1,7 @@
 "use client";
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Line } from "@react-three/drei";
+import { OrbitControls, Line, Sphere } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { useState, useMemo, useRef, Suspense } from "react";
 import * as THREE from "three";
@@ -11,28 +11,47 @@ import { StarsField } from "./StarsField";
 
 const EARTH_RADIUS = 6.371;
 
-// FIXED: Proper circular orbit that doesn't pass through Earth
+// COMPLETELY REWRITTEN: Perfect circular orbit
 function generateOrbitPath(altitude: number, inclination: number) {
   const points = [];
-  const radius = EARTH_RADIUS + (altitude / 100); // Orbit radius is Earth radius + altitude
-  const segments = 256;
-  const incRad = (inclination * Math.PI) / 180;
+  const orbitRadius = EARTH_RADIUS + (altitude / 100);
+  const segments = 128;
   
   for (let i = 0; i <= segments; i++) {
-    const theta = (i / segments) * Math.PI * 2;
+    const angle = (i / segments) * Math.PI * 2;
     
-    // Proper 3D circular orbit around Earth
-    const x = radius * Math.cos(theta);
-    const y = radius * Math.sin(theta) * Math.sin(incRad);
-    const z = radius * Math.sin(theta) * Math.cos(incRad);
+    // Simple circle in XZ plane first
+    let x = orbitRadius * Math.cos(angle);
+    let y = 0;
+    let z = orbitRadius * Math.sin(angle);
     
-    points.push(new THREE.Vector3(x, y, z));
+    // Then rotate by inclination
+    const incRad = (inclination * Math.PI) / 180;
+    const newY = z * Math.sin(incRad);
+    const newZ = z * Math.cos(incRad);
+    
+    points.push(new THREE.Vector3(x, newY, newZ));
   }
   
   return points;
 }
 
-// Simplified ISS - less glowy
+// THE SUN
+function Sun() {
+  return (
+    <group position={[50, 0, 0]}>
+      <Sphere args={[3, 32, 32]}>
+        <meshBasicMaterial color="#ffff00" />
+      </Sphere>
+      <pointLight color="#ffffff" intensity={50} distance={200} />
+      <mesh>
+        <sphereGeometry args={[5, 32, 32]} />
+        <meshBasicMaterial color="#ffaa00" transparent opacity={0.3} />
+      </mesh>
+    </group>
+  );
+}
+
 function DetailedISS() {
   const groupRef = useRef<THREE.Group>(null);
   
@@ -44,47 +63,43 @@ function DetailedISS() {
   
   return (
     <group ref={groupRef} scale={0.5}>
-      {/* Main truss */}
       <mesh>
         <boxGeometry args={[3, 0.12, 0.12]} />
-        <meshStandardMaterial color="#c0c0c0" metalness={0.9} roughness={0.3} />
+        <meshStandardMaterial color="#c0c0c0" metalness={0.9} roughness={0.3} emissive="#c0c0c0" emissiveIntensity={0.3} />
       </mesh>
       
-      {/* Modules */}
       <mesh position={[-0.6, 0, 0]} rotation={[0, 0, Math.PI/2]}>
         <cylinderGeometry args={[0.2, 0.2, 1.2]} />
-        <meshStandardMaterial color="#e8e8e8" metalness={0.7} roughness={0.4} />
+        <meshStandardMaterial color="#e8e8e8" metalness={0.7} roughness={0.4} emissive="#e8e8e8" emissiveIntensity={0.2} />
       </mesh>
       <mesh position={[0.6, 0, 0]} rotation={[0, 0, Math.PI/2]}>
         <cylinderGeometry args={[0.22, 0.22, 1.4]} />
-        <meshStandardMaterial color="#e0e0e0" metalness={0.7} roughness={0.4} />
+        <meshStandardMaterial color="#e0e0e0" metalness={0.7} roughness={0.4} emissive="#e0e0e0" emissiveIntensity={0.2} />
       </mesh>
       
-      {/* Solar panels */}
       <group position={[-1.7, 0, 0]}>
         <mesh position={[0, 0.12, 0]}>
           <boxGeometry args={[2, 0.02, 1]} />
-          <meshStandardMaterial color="#1a3d5c" metalness={0.95} roughness={0.1} />
+          <meshStandardMaterial color="#1a3d5c" metalness={0.95} roughness={0.1} emissive="#0066cc" emissiveIntensity={0.3} />
         </mesh>
         <mesh position={[0, 0.35, 0]}>
           <boxGeometry args={[2, 0.02, 1]} />
-          <meshStandardMaterial color="#1a3d5c" metalness={0.95} roughness={0.1} />
+          <meshStandardMaterial color="#1a3d5c" metalness={0.95} roughness={0.1} emissive="#0066cc" emissiveIntensity={0.3} />
         </mesh>
       </group>
       
       <group position={[1.7, 0, 0]}>
         <mesh position={[0, 0.12, 0]}>
           <boxGeometry args={[2, 0.02, 1]} />
-          <meshStandardMaterial color="#1a3d5c" metalness={0.95} roughness={0.1} />
+          <meshStandardMaterial color="#1a3d5c" metalness={0.95} roughness={0.1} emissive="#0066cc" emissiveIntensity={0.3} />
         </mesh>
         <mesh position={[0, 0.35, 0]}>
           <boxGeometry args={[2, 0.02, 1]} />
-          <meshStandardMaterial color="#1a3d5c" metalness={0.95} roughness={0.1} />
+          <meshStandardMaterial color="#1a3d5c" metalness={0.95} roughness={0.1} emissive="#0066cc" emissiveIntensity={0.3} />
         </mesh>
       </group>
       
-      {/* Subtle light only */}
-      <pointLight color="#00ffcc" intensity={2} distance={6} />
+      <pointLight color="#00ffcc" intensity={3} distance={8} />
     </group>
   );
 }
@@ -102,28 +117,27 @@ function DetailedStarship() {
     <group ref={groupRef} scale={0.35}>
       <mesh>
         <cylinderGeometry args={[0.3, 0.3, 2.5, 32]} />
-        <meshStandardMaterial color="#d0d0d0" metalness={0.95} roughness={0.15} />
+        <meshStandardMaterial color="#d0d0d0" metalness={0.95} roughness={0.15} emissive="#a0a0a0" emissiveIntensity={0.2} />
       </mesh>
       <mesh position={[0, 1.6, 0]}>
         <coneGeometry args={[0.3, 0.8, 32]} />
-        <meshStandardMaterial color="#c8c8c8" metalness={0.95} roughness={0.12} />
+        <meshStandardMaterial color="#c8c8c8" metalness={0.95} roughness={0.12} emissive="#a0a0a0" emissiveIntensity={0.2} />
       </mesh>
       <mesh position={[0, 0.4, 0]}>
         <cylinderGeometry args={[0.31, 0.31, 1.2, 32]} />
         <meshStandardMaterial color="#1a1a1a" metalness={0.3} roughness={0.9} />
       </mesh>
       
-      {/* Flaps */}
       <mesh position={[0.4, 0.6, 0]} rotation={[0, 0, Math.PI/8]}>
         <boxGeometry args={[0.7, 0.05, 0.3]} />
-        <meshStandardMaterial color="#888" metalness={0.9} roughness={0.3} />
+        <meshStandardMaterial color="#888" metalness={0.9} roughness={0.3} emissive="#666" emissiveIntensity={0.2} />
       </mesh>
       <mesh position={[-0.4, 0.6, 0]} rotation={[0, 0, -Math.PI/8]}>
         <boxGeometry args={[0.7, 0.05, 0.3]} />
-        <meshStandardMaterial color="#888" metalness={0.9} roughness={0.3} />
+        <meshStandardMaterial color="#888" metalness={0.9} roughness={0.3} emissive="#666" emissiveIntensity={0.2} />
       </mesh>
       
-      <pointLight color="#ffaa00" intensity={2} distance={6} />
+      <pointLight color="#ffaa00" intensity={3} distance={8} />
     </group>
   );
 }
@@ -133,13 +147,13 @@ function DetailedStarlink() {
     <group scale={0.3}>
       <mesh>
         <boxGeometry args={[0.8, 0.1, 0.5]} />
-        <meshStandardMaterial color="#2a2a2a" metalness={0.9} roughness={0.2} />
+        <meshStandardMaterial color="#2a2a2a" metalness={0.9} roughness={0.2} emissive="#2a2a2a" emissiveIntensity={0.3} />
       </mesh>
       <mesh position={[0, 0.15, 0]}>
         <boxGeometry args={[1.2, 0.02, 0.4]} />
-        <meshStandardMaterial color="#1a4d7a" metalness={0.95} roughness={0.1} />
+        <meshStandardMaterial color="#1a4d7a" metalness={0.95} roughness={0.1} emissive="#0066cc" emissiveIntensity={0.4} />
       </mesh>
-      <pointLight color="#00ff88" intensity={2} distance={5} />
+      <pointLight color="#00ff88" intensity={3} distance={6} />
     </group>
   );
 }
@@ -154,23 +168,28 @@ function OrbitingSpacecraft({ mission, index, timeScale, onPositionUpdate }: any
       const progress = (scaledTime / orbitalPeriod + (index * 0.33)) % 1;
       const angle = progress * Math.PI * 2;
       
-      const radius = EARTH_RADIUS + (mission.alt / 100);
-      const inclinationRad = (mission.inclination * Math.PI) / 180;
+      const orbitRadius = EARTH_RADIUS + (mission.alt / 100);
+      const incRad = (mission.inclination * Math.PI) / 180;
       
-      // Circular orbit
-      const x = radius * Math.cos(angle);
-      const y = radius * Math.sin(angle) * Math.sin(inclinationRad);
-      const z = radius * Math.sin(angle) * Math.cos(inclinationRad);
+      // Circle in XZ plane
+      let x = orbitRadius * Math.cos(angle);
+      let y = 0;
+      let z = orbitRadius * Math.sin(angle);
       
-      groupRef.current.position.set(x, y, z);
+      // Rotate by inclination
+      const newY = z * Math.sin(incRad);
+      const newZ = z * Math.cos(incRad);
       
-      // Point forward
+      groupRef.current.position.set(x, newY, newZ);
+      
+      // Point forward along orbit
       const nextAngle = angle + 0.01;
-      const nextX = radius * Math.cos(nextAngle);
-      const nextZ = radius * Math.sin(nextAngle) * Math.cos(inclinationRad);
-      groupRef.current.lookAt(nextX, y, nextZ);
+      let nextX = orbitRadius * Math.cos(nextAngle);
+      let nextZ = orbitRadius * Math.sin(nextAngle);
+      const nextNewZ = nextZ * Math.cos(incRad);
+      groupRef.current.lookAt(nextX, newY, nextNewZ);
       
-      onPositionUpdate([x, y, z]);
+      onPositionUpdate([x, newY, newZ]);
     }
   });
   
@@ -180,7 +199,7 @@ function OrbitingSpacecraft({ mission, index, timeScale, onPositionUpdate }: any
   
   return (
     <group ref={groupRef}>
-      <Line points={orbitPath} color={mission.color} lineWidth={1.5} transparent opacity={0.5} />
+      <Line points={orbitPath} color={mission.color} lineWidth={2} transparent opacity={0.6} />
       <Suspense fallback={null}>
         <Model />
       </Suspense>
@@ -212,7 +231,7 @@ function SpaceCamera({ target, enabled, zoom }: any) {
   useFrame(() => {
     if (enabled && target) {
       const targetPos = new THREE.Vector3(...target);
-      const distance = 12 / zoom; // Zoom affects distance
+      const distance = 12 / zoom;
       const offset = targetPos.clone().normalize().multiplyScalar(distance);
       const desiredPos = offset.add(new THREE.Vector3(0, 4 / zoom, 0));
       camera.position.lerp(desiredPos, 0.02);
@@ -251,9 +270,13 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
       <Canvas camera={{ position: [0, 10, 20], fov: 50 }}>
         <color attach="background" args={["#000008"]} />
-        <ambientLight intensity={0.3} />
-        <directionalLight position={[30, 20, 10]} intensity={6} castShadow />
-        <pointLight position={[0, 0, 0]} intensity={4} distance={100} />
+        
+        {/* SUN */}
+        <Sun />
+        
+        {/* Additional lighting */}
+        <ambientLight intensity={0.4} />
+        <directionalLight position={[50, 0, 0]} intensity={8} castShadow />
         
         <StarsField />
         <RotatingEarth timeScale={playing ? timeScale : 0} />
@@ -265,13 +288,12 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         <SpaceCamera target={spacecraftPositions[selectedMission]} enabled={!freeCam} zoom={zoom} />
         
         <EffectComposer>
-          <Bloom intensity={1.5} luminanceThreshold={0.2} luminanceSmoothing={0.9} />
+          <Bloom intensity={2} luminanceThreshold={0.3} luminanceSmoothing={0.9} />
         </EffectComposer>
         
         <OrbitControls enabled={freeCam} enableDamping dampingFactor={0.05} />
       </Canvas>
       
-      {/* CONTROLS */}
       <div style={{position:'fixed',top:20,left:'50%',transform:'translateX(-50%)',display:'flex',gap:12,background:'rgba(5,10,15,0.95)',padding:'14px 28px',borderRadius:10,border:'1px solid rgba(0,200,255,0.3)',boxShadow:'0 8px 32px rgba(0,0,0,0.8)',zIndex:100}}>
         <button onClick={()=>setFreeCam(!freeCam)} style={{background:freeCam?'#00ccff':'#1a1a1a',color:freeCam?'#000':'#0cf',border:'1px solid #0cf',padding:'10px 20px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:13}}>{freeCam?'🎥 FREE':'🎯 TRACK'}</button>
         <button onClick={()=>setPlaying(!playing)} style={{background:playing?'#00ff88':'#ff3333',color:'#000',border:'none',padding:'10px 20px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:13}}>{playing?'⏸ PAUSE':'▶ PLAY'}</button>
@@ -288,16 +310,13 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         </div>
       </div>
       
-      {/* ZOOM CONTROLS */}
       <div style={{position:'fixed',top:20,right:300,display:'flex',flexDirection:'column',gap:8,zIndex:100}}>
         <button onClick={()=>setZoom(Math.min(zoom * 1.2, 3))} style={{background:'rgba(5,10,15,0.95)',color:'#0cf',border:'1px solid #0cf',padding:'8px 16px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:16}}>+</button>
         <button onClick={()=>setZoom(Math.max(zoom / 1.2, 0.5))} style={{background:'rgba(5,10,15,0.95)',color:'#0cf',border:'1px solid #0cf',padding:'8px 16px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:16}}>−</button>
       </div>
       
-      {/* MISSIONS */}
       <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',display:'flex',gap:16,zIndex:100}}>{missions.map((m,i)=><button key={i} onClick={()=>setSelectedMission(i)} style={{background:i===selectedMission?`linear-gradient(135deg,${m.color},${m.color}dd)`:'rgba(5,10,15,0.95)',color:i===selectedMission?'#000':'#fff',border:`2px solid ${m.color}`,padding:'12px 28px',borderRadius:10,cursor:'pointer',fontWeight:700,fontSize:12,boxShadow:i===selectedMission?`0 8px 24px ${m.color}80`:'0 4px 12px rgba(0,0,0,0.5)',transition:'all 0.3s'}}>{m.name}</button>)}</div>
       
-      {/* TELEMETRY */}
       <div style={{position:'fixed',top:24,right:24,width:260,background:'rgba(5,10,15,0.95)',border:'1px solid rgba(0,200,255,0.3)',borderRadius:12,padding:'18px 22px',color:'#0cf',fontSize:12,fontFamily:'monospace',boxShadow:'0 8px 32px rgba(0,0,0,0.8)',zIndex:100}}>
         <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16,paddingBottom:14,borderBottom:'1px solid rgba(0,200,255,0.2)'}}>
           <div style={{width:8,height:8,borderRadius:'50%',background:'#0f8',boxShadow:'0 0 12px #0f8'}}/>
