@@ -1,11 +1,10 @@
 "use client";
 
-import { Canvas, useFrame, useThree, useLoader } from "@react-three/fiber";
-import { OrbitControls, Line, useGLTF } from "@react-three/drei";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { OrbitControls, Line } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
 import { useState, useMemo, useRef, Suspense } from "react";
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 
 import { EarthPro } from "./EarthPro";
 import { StarsField } from "./StarsField";
@@ -28,7 +27,6 @@ function generateOrbitPath(altitude: number, inclination: number) {
   return points;
 }
 
-// Detailed procedural ISS - looks MUCH better
 function DetailedISS() {
   const groupRef = useRef<THREE.Group>(null);
   
@@ -40,13 +38,11 @@ function DetailedISS() {
   
   return (
     <group ref={groupRef} scale={0.6}>
-      {/* Main truss backbone */}
       <mesh>
         <boxGeometry args={[3.5, 0.15, 0.15]} />
         <meshStandardMaterial color="#c8c8c8" metalness={0.9} roughness={0.2} />
       </mesh>
       
-      {/* Pressurized modules cluster */}
       <group position={[0, 0, 0]}>
         <mesh position={[-0.8, 0, 0]} rotation={[0, 0, Math.PI/2]}>
           <cylinderGeometry args={[0.22, 0.22, 1.5]} />
@@ -62,7 +58,6 @@ function DetailedISS() {
         </mesh>
       </group>
       
-      {/* PORT solar arrays (4 wings) */}
       <group position={[-2, 0, 0]}>
         <mesh position={[0, 0.15, 0]}>
           <boxGeometry args={[2.5, 0.02, 1.2]} />
@@ -74,7 +69,6 @@ function DetailedISS() {
         </mesh>
       </group>
       
-      {/* STARBOARD solar arrays (4 wings) */}
       <group position={[2, 0, 0]}>
         <mesh position={[0, 0.15, 0]}>
           <boxGeometry args={[2.5, 0.02, 1.2]} />
@@ -86,7 +80,6 @@ function DetailedISS() {
         </mesh>
       </group>
       
-      {/* Thermal radiators - gold */}
       <mesh position={[0.6, 0.4, 0]}>
         <boxGeometry args={[1, 0.02, 0.4]} />
         <meshStandardMaterial color="#ffd700" metalness={0.95} roughness={0.15} />
@@ -96,19 +89,16 @@ function DetailedISS() {
         <meshStandardMaterial color="#ffd700" metalness={0.95} roughness={0.15} />
       </mesh>
       
-      {/* Canadarm2 */}
       <mesh rotation={[0, 0, Math.PI/5]} position={[0.4, 0.3, 0.2]}>
         <cylinderGeometry args={[0.04, 0.04, 2]} />
         <meshStandardMaterial color="#b0b0b0" metalness={0.85} roughness={0.3} />
       </mesh>
       
-      {/* Columbus module */}
       <mesh position={[0, 0, -0.5]} rotation={[Math.PI/2, 0, 0]}>
         <cylinderGeometry args={[0.2, 0.2, 0.8]} />
         <meshStandardMaterial color="#e0e0e0" metalness={0.7} roughness={0.35} />
       </mesh>
       
-      {/* Glow */}
       <pointLight color="#00ffcc" intensity={6} distance={12} />
       <mesh>
         <sphereGeometry args={[1.2, 32, 32]} />
@@ -118,7 +108,6 @@ function DetailedISS() {
   );
 }
 
-// Detailed Starship
 function DetailedStarship() {
   const groupRef = useRef<THREE.Group>(null);
   
@@ -130,25 +119,21 @@ function DetailedStarship() {
   
   return (
     <group ref={groupRef} scale={0.4}>
-      {/* Main body - stainless steel */}
       <mesh>
         <cylinderGeometry args={[0.35, 0.35, 3, 32]} />
         <meshStandardMaterial color="#d8d8d8" metalness={0.98} roughness={0.12} />
       </mesh>
       
-      {/* Nose cone */}
       <mesh position={[0, 1.9, 0]}>
         <coneGeometry args={[0.35, 1, 32]} />
         <meshStandardMaterial color="#d0d0d0" metalness={0.98} roughness={0.1} />
       </mesh>
       
-      {/* Heat shield tiles */}
       <mesh position={[0, 0.5, 0]}>
         <cylinderGeometry args={[0.36, 0.36, 1.5, 32]} />
         <meshStandardMaterial color="#1a1a1a" metalness={0.2} roughness={0.95} />
       </mesh>
       
-      {/* Forward flaps */}
       <mesh position={[0.5, 0.8, 0]} rotation={[0, 0, Math.PI/7]}>
         <boxGeometry args={[0.8, 0.06, 0.35]} />
         <meshStandardMaterial color="#909090" metalness={0.9} roughness={0.25} />
@@ -158,7 +143,6 @@ function DetailedStarship() {
         <meshStandardMaterial color="#909090" metalness={0.9} roughness={0.25} />
       </mesh>
       
-      {/* Aft flaps */}
       <mesh position={[0.55, -1.2, 0]} rotation={[0, 0, Math.PI/6]}>
         <boxGeometry args={[1, 0.06, 0.4]} />
         <meshStandardMaterial color="#888888" metalness={0.9} roughness={0.25} />
@@ -168,7 +152,6 @@ function DetailedStarship() {
         <meshStandardMaterial color="#888888" metalness={0.9} roughness={0.25} />
       </mesh>
       
-      {/* Raptor engines */}
       <group position={[0, -1.7, 0]}>
         <mesh position={[0.15, 0, 0.15]}>
           <cylinderGeometry args={[0.1, 0.12, 0.2]} />
@@ -193,7 +176,6 @@ function DetailedStarship() {
   );
 }
 
-// Detailed Starlink
 function DetailedStarlink() {
   return (
     <group scale={0.35}>
@@ -265,11 +247,6 @@ function RotatingEarth({ timeScale }: { timeScale: number }) {
   
   useFrame((state, delta) => {
     if (earthRef.current && timeScale > 0) {
-      // ACTUAL CALCULATION:
-      // Earth rotates 360° in 24 hours = 86400 seconds
-      // Radians per second = (2 * PI) / 86400 = 0.0000727220522 rad/s
-      // This is TINY - at 60fps (delta ~0.0166s), rotation per frame = 0.0000012 radians
-      // So at 1× you won't see ANY movement - it's realistic!
       const SECONDS_PER_DAY = 86400;
       const radiansPerSecond = (Math.PI * 2) / SECONDS_PER_DAY;
       earthRef.current.rotation.y += radiansPerSecond * delta * timeScale;
