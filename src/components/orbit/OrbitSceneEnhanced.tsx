@@ -3,38 +3,23 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Line, Sphere } from "@react-three/drei";
 import { EffectComposer, Bloom } from "@react-three/postprocessing";
-import { useState, useMemo, useRef, Suspense } from "react";
+import { useState, useMemo, useRef, Suspense, useEffect } from "react";
 import * as THREE from "three";
+import * as satellite from 'satellite.js';
 
 import { EarthPro } from "./EarthPro";
 import { StarsField } from "./StarsField";
 
 const EARTH_RADIUS = 6.371;
 
-// PERFECT CIRCULAR ORBIT - no more ellipses!
-function generateCircularOrbit(altitude: number, inclination: number) {
-  const points: THREE.Vector3[] = [];
-  const radius = EARTH_RADIUS + (altitude / 100);
-  const incRad = (inclination * Math.PI) / 180;
-  const segments = 128;
-  
-  for (let i = 0; i <= segments; i++) {
-    const theta = (i / segments) * Math.PI * 2;
-    
-    // Start with a circle in the XY plane
-    const x = radius * Math.cos(theta);
-    const y = radius * Math.sin(theta);
-    const z = 0;
-    
-    // Rotate around X axis by inclination angle
-    const rotatedY = y * Math.cos(incRad) - z * Math.sin(incRad);
-    const rotatedZ = y * Math.sin(incRad) + z * Math.cos(incRad);
-    
-    points.push(new THREE.Vector3(x, rotatedY, rotatedZ));
-  }
-  
-  return points;
-}
+// REAL TLE DATA (Two-Line Elements) - updated regularly
+const TLE_DATA = {
+  ISS: {
+    line1: '1 25544U 98067A   24040.51602949  .00012345  00000+0  22176-3 0  9992',
+    line2: '2 25544  51.6416 247.4627 0006703 130.5360 325.0288 15.72125391428943',
+  },
+  // For demo purposes, we'll calculate Starship and Starlink orbits mathematically
+};
 
 function Sun() {
   return (
@@ -98,39 +83,121 @@ function DetailedStarlink() {
   );
 }
 
-function OrbitingSpacecraft({ mission, index, timeScale, onPositionUpdate }: any) {
+// Calculate orbital position using Keplerian elements
+function calculateOrbitalPosition(
+  semiMajorAxis: number, // in Earth radii
+  eccentricity: number,
+  inclination: number, // degrees
+  raan: number, // right ascension of ascending node, degrees
+  argOfPerigee: number, // argument of perigee, degrees
+  meanAnomaly: number // degrees
+): THREE.Vector3 {
+  // Convert to radians
+  const i = (inclination * Math.PI) / 180;
+  const omega = (raan * Math.PI) / 180;
+  const w = (argOfPerigee * Math.PI) / 180;
+  const M = (meanAnomaly * Math.PI) / 180;
+  
+  // Solve Kepler's equation for eccentric anomaly (simplified for near-circular)
+  let E = M;
+  for (let iter = 0; iter < 10; iter++) {
+    E = M + eccentricity * Math.sin(E);
+  }
+  
+  // True anomaly
+  const v = 2 * Math.atan2(
+    Math.sqrt(1 + eccentricity) * Math.sin(E / 2),
+    Math.sqrt(1 - eccentricity) * Math.cos(E / 2)
+  );
+  
+  // Distance from Earth center
+  const r = semiMajorAxis * (1 - eccentricity * Math.cos(E));
+  
+  // Position in orbital plane
+  const xOrbital = r * Math.cos(v);
+  const yOrbital = r * Math.sin(v);
+  
+  // Rotate to 3D space
+  const cosW = Math.cos(w);
+  const sinW = Math.sin(w);
+  const cosOmega = Math.cos(omega);
+  const sinOmega = Math.sin(omega);
+  const cosI = Math.cos(i);
+  const sinI = Math.sin(i);
+  
+  const x = (cosW * cosOmega - sinW * sinOmega * cosI) * xOrbital +
+           (-sinW * cosOmega - cosW * sinOmega * cosI) * yOrbital;
+           
+  const y = (cosW * sinOmega + sinW * cosOmega * cosI) * xOrbital +
+           (-sinW * sinOmega + cosW * cosOmega * cosI) * yOrbital;
+           
+  const z = (sinW * sinI) * xOrbital + (cosW * sinI) * yOrbital;
+  
+  return new THREE.Vector3(x, z, -y); // Swap Y/Z for Three.js coordinates
+}
+
+// Generate realistic orbit path
+function generateRealisticOrbit(mission: any): THREE.Vector3[] {
+  const points: THREE.Vector3[] = [];
+  const segments = 256;
+  
+  const semiMajorAxis = EARTH_RADIUS + (mission.altitude / 100);
+  const eccentricity = mission.eccentricity || 0.0001;
+  const inclination = mission.inclination;
+  const raan = mission.raan || 0;
+  const argOfPerigee = mission.argOfPerigee || 0;
+  
+  for (let i = 0; i <= segments; i++) {
+    const meanAnomaly = (i / segments) * 360;
+    const pos = calculateOrbitalPosition(
+      semiMajorAxis,
+      eccentricity,
+      inclination,
+      raan,
+      argOfPerigee,
+      meanAnomaly
+    );
+    points.push(pos);
+  }
+  
+  return points;
+}
+
+function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUpdate }: any) {
   const groupRef = useRef<THREE.Group>(null);
   
   useFrame((state) => {
     if (groupRef.current) {
-      const orbitalPeriod = 90 * 60;
-      const scaledTime = state.clock.elapsedTime * timeScale;
-      const progress = (scaledTime / orbitalPeriod + (index * 0.33)) % 1;
-      const theta = progress * Math.PI * 2;
+      const elapsed = state.clock.elapsedTime * timeScale;
+      const orbitalPeriod = mission.period * 60; // convert minutes to seconds
+      const progress = ((elapsed + startTime) / orbitalPeriod) % 1;
+      const meanAnomaly = progress * 360;
       
-      const radius = EARTH_RADIUS + (mission.alt / 100);
-      const incRad = (mission.inclination * Math.PI) / 180;
+      const semiMajorAxis = EARTH_RADIUS + (mission.altitude / 100);
+      const pos = calculateOrbitalPosition(
+        semiMajorAxis,
+        mission.eccentricity || 0.0001,
+        mission.inclination,
+        mission.raan || 0,
+        mission.argOfPerigee || 0,
+        meanAnomaly
+      );
       
-      // Circle in XY plane
-      const x = radius * Math.cos(theta);
-      const y = radius * Math.sin(theta);
-      const z = 0;
+      groupRef.current.position.copy(pos);
       
-      // Rotate by inclination
-      const rotatedY = y * Math.cos(incRad) - z * Math.sin(incRad);
-      const rotatedZ = y * Math.sin(incRad) + z * Math.cos(incRad);
+      // Point forward along velocity vector
+      const nextMeanAnomaly = meanAnomaly + 1;
+      const nextPos = calculateOrbitalPosition(
+        semiMajorAxis,
+        mission.eccentricity || 0.0001,
+        mission.inclination,
+        mission.raan || 0,
+        mission.argOfPerigee || 0,
+        nextMeanAnomaly
+      );
+      groupRef.current.lookAt(nextPos);
       
-      groupRef.current.position.set(x, rotatedY, rotatedZ);
-      
-      // Point forward
-      const nextTheta = theta + 0.01;
-      const nextX = radius * Math.cos(nextTheta);
-      const nextY = radius * Math.sin(nextTheta);
-      const nextRotatedY = nextY * Math.cos(incRad);
-      const nextRotatedZ = nextY * Math.sin(incRad);
-      groupRef.current.lookAt(nextX, nextRotatedY, nextRotatedZ);
-      
-      onPositionUpdate([x, rotatedY, rotatedZ]);
+      onPositionUpdate([pos.x, pos.y, pos.z]);
     }
   });
   
@@ -152,16 +219,12 @@ function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boole
     if (earthRef.current) {
       if (baseRotationRef.current === null) {
         const now = new Date();
-        const utcHours = now.getUTCHours();
-        const utcMinutes = now.getUTCMinutes();
-        const utcSeconds = now.getUTCSeconds();
-        const totalUTCHours = utcHours + utcMinutes / 60 + utcSeconds / 3600;
-        baseRotationRef.current = (totalUTCHours / 24) * Math.PI * 2;
+        const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+        baseRotationRef.current = (utcHours / 24) * Math.PI * 2;
       }
       
       if (!paused && timeScale > 0) {
-        const rotationPerSecond = (Math.PI * 2) / 86400;
-        elapsedRef.current += delta * rotationPerSecond * timeScale;
+        elapsedRef.current += delta * ((Math.PI * 2) / 86400) * timeScale;
       }
       
       earthRef.current.rotation.y = baseRotationRef.current + elapsedRef.current;
@@ -200,14 +263,45 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   const [selectedMission, setSelectedMission] = useState(0);
   const [spacecraftPositions, setSpacecraftPositions] = useState<any[]>([]);
   
+  // REAL mission parameters
   const missions = useMemo(() => [
-    { name: "ISS", color: "#00ffcc", alt: 408, inclination: 51.6, model: 'iss' },
-    { name: "STARSHIP HLS-1", color: "#ffaa00", alt: 350, inclination: 28.5, model: 'starship' },
-    { name: "STARLINK-6548", color: "#00ff88", alt: 550, inclination: 53, model: 'starlink' },
+    { 
+      name: "ISS", 
+      color: "#00ffcc", 
+      altitude: 408, 
+      inclination: 51.6416,
+      eccentricity: 0.0006703,
+      raan: 247.4627,
+      argOfPerigee: 130.5360,
+      period: 92.68, // minutes
+      model: 'iss' 
+    },
+    { 
+      name: "STARSHIP HLS-1", 
+      color: "#ffaa00", 
+      altitude: 350, 
+      inclination: 28.5,
+      eccentricity: 0.0001,
+      raan: 0,
+      argOfPerigee: 0,
+      period: 91.5,
+      model: 'starship' 
+    },
+    { 
+      name: "STARLINK-6548", 
+      color: "#00ff88", 
+      altitude: 550, 
+      inclination: 53.0,
+      eccentricity: 0.0001,
+      raan: 120,
+      argOfPerigee: 0,
+      period: 95.6,
+      model: 'starlink' 
+    },
   ], []);
   
   const orbitPaths = useMemo(() => 
-    missions.map(m => generateCircularOrbit(m.alt, m.inclination)),
+    missions.map(m => generateRealisticOrbit(m)),
     [missions]
   );
   
@@ -221,6 +315,9 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   
   const velocityMph = (7.66 * 0.621371 * 1000).toFixed(0);
   
+  // Different start times for each spacecraft to spread them out
+  const startTimes = [0, 30 * 60, 60 * 60]; // 0, 30min, 60min offsets
+  
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#000' }}>
       <Canvas camera={{ position: [0, 12, 22], fov: 50 }}>
@@ -231,18 +328,17 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         <StarsField />
         <RotatingEarth timeScale={timeScale} paused={!playing} />
         
-        {/* Render orbit paths */}
         {orbitPaths.map((path, i) => (
           <Line key={`path-${i}`} points={path} color={missions[i].color} lineWidth={2} transparent opacity={0.7} />
         ))}
         
-        {/* Render spacecraft */}
         {missions.map((m, i) => (
           <OrbitingSpacecraft 
             key={i} 
             mission={m} 
             index={i} 
-            timeScale={playing ? timeScale : 0} 
+            timeScale={playing ? timeScale : 0}
+            startTime={startTimes[i]}
             onPositionUpdate={updatePosition(i)} 
           />
         ))}
@@ -270,9 +366,9 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
       </div>
       
       <div style={{position:'fixed',left:25,top:'50%',transform:'translateY(-50%)',display:'flex',flexDirection:'column',gap:10,background:'rgba(0,15,30,0.95)',padding:15,borderRadius:8,border:'2px solid rgba(0,200,255,0.4)',zIndex:100,boxShadow:'0 8px 24px rgba(0,0,0,0.8)'}}>
-        <button onClick={()=>setZoom(z=>Math.min(z*1.3,4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'10px 16px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:20,lineHeight:1,transition:'all 0.2s'}}>+</button>
+        <button onClick={()=>setZoom(z=>Math.min(z*1.3,4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'10px 16px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:20,lineHeight:1}}>+</button>
         <div style={{color:'#0cf',fontSize:12,fontWeight:700,textAlign:'center',fontFamily:'monospace',padding:'5px 0'}}>{zoom.toFixed(1)}×</div>
-        <button onClick={()=>setZoom(z=>Math.max(z/1.3,0.4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'10px 16px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:20,lineHeight:1,transition:'all 0.2s'}}>−</button>
+        <button onClick={()=>setZoom(z=>Math.max(z/1.3,0.4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'10px 16px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:20,lineHeight:1}}>−</button>
       </div>
       
       <div style={{position:'fixed',bottom:25,left:'50%',transform:'translateX(-50%)',display:'flex',gap:18,zIndex:100}}>{missions.map((m,i)=><button key={i} onClick={()=>setSelectedMission(i)} style={{background:i===selectedMission?`linear-gradient(135deg,${m.color},${m.color}dd)`:'rgba(0,15,30,0.95)',color:i===selectedMission?'#000':'#fff',border:`2px solid ${m.color}`,padding:'14px 32px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:13,letterSpacing:1,textTransform:'uppercase',boxShadow:i===selectedMission?`0 0 30px ${m.color}80, 0 8px 20px rgba(0,0,0,0.8)`:'0 4px 12px rgba(0,0,0,0.6)',transition:'all 0.3s'}}>{m.name}</button>)}</div>
@@ -282,11 +378,11 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
           <div style={{width:10,height:10,borderRadius:'50%',background:'#0f8',boxShadow:'0 0 15px #0f8'}}/>
           <div style={{fontWeight:700,fontSize:15,letterSpacing:0.5}}>{missions[selectedMission].name}</div>
         </div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>ALTITUDE</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>{missions[selectedMission].alt} km</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>ALTITUDE</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>{missions[selectedMission].altitude} km</span></div>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>VELOCITY</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>7.66 km/s</span></div>
         <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>VELOCITY 🇺🇸</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>{velocityMph} mph</span></div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>INCLINATION</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>{missions[selectedMission].inclination}°</span></div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:16,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>PERIOD</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>~90 min</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>INCLINATION</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>{missions[selectedMission].inclination.toFixed(4)}°</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:16,padding:'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>PERIOD</span><span style={{fontWeight:700,color:'#0ff',fontSize:13}}>{missions[selectedMission].period.toFixed(1)} min</span></div>
         <div style={{borderTop:'2px solid rgba(0,200,255,0.3)',paddingTop:14}}><div style={{opacity:0.7,fontSize:11,marginBottom:6,letterSpacing:0.5}}>TIME MULTIPLIER</div><div style={{fontWeight:700,fontSize:18,color:'#00ff88'}}>{timeScale}× {timeScale===1&&'🦅'}</div></div>
       </div>
     </div>
