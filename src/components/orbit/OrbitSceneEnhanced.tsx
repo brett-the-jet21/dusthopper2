@@ -73,14 +73,12 @@ function DetailedStarlink() {
   );
 }
 
-// Calculate orbital velocity: v = sqrt(GM/r)
-// G = 6.674×10^-11, M_earth = 5.972×10^24 kg
 function calculateOrbitalVelocity(altitudeKm: number): { kms: number; mph: number } {
   const G = 6.674e-11;
   const M = 5.972e24;
-  const R_earth = 6371000; // meters
+  const R_earth = 6371000;
   const r = R_earth + (altitudeKm * 1000);
-  const v = Math.sqrt((G * M) / r); // m/s
+  const v = Math.sqrt((G * M) / r);
   const kms = v / 1000;
   const mph = kms * 0.621371 * 1000;
   return { kms, mph };
@@ -202,24 +200,44 @@ function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUp
   );
 }
 
+// COMPLETELY FIXED Earth rotation
 function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boolean }) {
   const earthRef = useRef<THREE.Group>(null);
-  const baseRotationRef = useRef<number | null>(null);
-  const elapsedRef = useRef(0);
+  const initialRotationSet = useRef(false);
   
   useFrame((state, delta) => {
     if (earthRef.current) {
-      if (baseRotationRef.current === null) {
+      // Set initial rotation ONCE based on current time
+      if (!initialRotationSet.current) {
         const now = new Date();
-        const utcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
-        baseRotationRef.current = (utcHours / 24) * Math.PI * 2;
+        const utcHours = now.getUTCHours();
+        const utcMinutes = now.getUTCMinutes();
+        const utcSeconds = now.getUTCSeconds();
+        
+        // Calculate exact fraction of day elapsed
+        const totalSeconds = utcHours * 3600 + utcMinutes * 60 + utcSeconds;
+        const dayFraction = totalSeconds / 86400;
+        
+        // Earth rotates 2π radians per day
+        const initialRotation = dayFraction * Math.PI * 2;
+        
+        earthRef.current.rotation.y = initialRotation;
+        initialRotationSet.current = true;
+        
+        console.log(`UTC Time: ${utcHours}:${utcMinutes}:${utcSeconds}`);
+        console.log(`Day fraction: ${dayFraction.toFixed(6)}`);
+        console.log(`Initial rotation: ${initialRotation.toFixed(6)} rad (${(initialRotation * 180 / Math.PI).toFixed(2)}°)`);
       }
       
+      // Only rotate if playing
       if (!paused && timeScale > 0) {
-        elapsedRef.current += delta * ((Math.PI * 2) / 86400) * timeScale;
+        // Earth rotates 2π radians in 86400 seconds
+        // At 1× speed, rotation per second = 2π / 86400 = 0.0000727 rad/s
+        const rotationPerSecond = (Math.PI * 2) / 86400;
+        const rotationThisFrame = rotationPerSecond * delta * timeScale;
+        
+        earthRef.current.rotation.y += rotationThisFrame;
       }
-      
-      earthRef.current.rotation.y = baseRotationRef.current + elapsedRef.current;
     }
   });
   
@@ -383,7 +401,6 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
       
       <div style={{position:'fixed',bottom:isMobile?10:25,left:'50%',transform:'translateX(-50%)',display:'flex',gap:isMobile?8:18,zIndex:100,flexWrap:'wrap',justifyContent:'center',maxWidth:isMobile?'90%':'auto'}}>{missions.map((m,i)=><button key={i} onClick={()=>setSelectedMission(i)} style={{background:i===selectedMission?`linear-gradient(135deg,${m.color},${m.color}dd)`:'rgba(0,15,30,0.95)',color:i===selectedMission?'#000':'#fff',border:`2px solid ${m.color}`,padding:isMobile?'8px 16px':'14px 32px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:isMobile?10:13,letterSpacing:1,textTransform:'uppercase',boxShadow:i===selectedMission?`0 0 30px ${m.color}80, 0 8px 20px rgba(0,0,0,0.8)`:'0 4px 12px rgba(0,0,0,0.6)',transition:'all 0.3s',whiteSpace:'nowrap'}}>{isMobile?m.name.split(' ')[0]:m.name}</button>)}</div>
       
-      {/* COLLAPSIBLE TELEMETRY PANEL */}
       <div style={{position:'fixed',top:isMobile?70:90,right:telemetryCollapsed?-280:isMobile?10:25,width:isMobile?'calc(100% - 20px)':280,maxWidth:isMobile?400:280,background:'rgba(0,15,30,0.98)',border:'2px solid rgba(0,200,255,0.4)',borderRadius:10,padding:isMobile?'12px 16px':'20px 24px',color:'#0cf',fontSize:isMobile?10:12,fontFamily:'monospace',boxShadow:'0 8px 32px rgba(0,0,0,0.9)',zIndex:100,transition:'right 0.3s ease'}}>
         <button onClick={()=>setTelemetryCollapsed(!telemetryCollapsed)} style={{position:'absolute',left:-40,top:20,background:'rgba(0,15,30,0.98)',border:'2px solid rgba(0,200,255,0.4)',borderRadius:'8px 0 0 8px',padding:'10px 8px',cursor:'pointer',color:'#0cf',fontWeight:700,fontSize:16}}>{telemetryCollapsed?'◀':'▶'}</button>
         
