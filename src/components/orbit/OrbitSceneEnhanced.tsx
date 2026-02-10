@@ -168,7 +168,6 @@ function OrbitingSpacecraft({
   isSelected: boolean;
 }) {
   const meshRef = useRef<THREE.Mesh>(null);
-  const orbitLineRef = useRef<THREE.Line>(null);
   const [simulationTime, setSimulationTime] = useState(0);
 
   useFrame((state, delta) => {
@@ -224,12 +223,11 @@ function OrbitingSpacecraft({
 
   return (
     <>
-      <line ref={orbitLineRef} geometry={orbitGeometry}>
+      <line geometry={orbitGeometry}>
         <lineBasicMaterial
           color={mission.color}
           transparent
           opacity={isSelected ? 0.6 : 0.3}
-          linewidth={isSelected ? 2 : 1}
         />
       </line>
 
@@ -269,7 +267,6 @@ function SpaceCamera({
   zoomLevel: number;
 }) {
   const { camera } = useThree();
-  const controlsRef = useRef<any>(null);
 
   useFrame(() => {
     if (trackingMode === 'TRACKING' && selectedMission) {
@@ -289,7 +286,6 @@ function SpaceCamera({
       <PerspectiveCamera makeDefault position={[25, 15, 25]} fov={45} />
       {trackingMode === 'FREE_CAM' && (
         <OrbitControls
-          ref={controlsRef}
           enablePan={true}
           enableZoom={true}
           enableRotate={true}
