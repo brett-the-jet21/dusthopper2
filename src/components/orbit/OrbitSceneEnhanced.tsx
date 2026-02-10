@@ -10,6 +10,7 @@ import { EarthPro } from "./EarthPro";
 import { StarsField } from "./StarsField";
 
 const EARTH_RADIUS = 6.371;
+const EARTH_ROTATION_PERIOD_SECONDS = 86400; // 24 hours in seconds
 
 function Sun() {
   return (
@@ -158,7 +159,7 @@ function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUp
   const groupRef = useRef<THREE.Group>(null);
   
   useFrame((state) => {
-    if (groupRef.current) {
+    if (groupRef.current && timeScale > 0) {
       const elapsed = state.clock.elapsedTime * timeScale;
       const orbitalPeriod = mission.period * 60;
       const progress = ((elapsed + startTime) / orbitalPeriod) % 1;
@@ -200,42 +201,32 @@ function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUp
   );
 }
 
-// COMPLETELY FIXED Earth rotation
-function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boolean }) {
+// EARTH ROTATION - uses its OWN time system, NOT spacecraft timeScale
+function RotatingEarth({ earthTimeScale, paused }: { earthTimeScale: number; paused: boolean }) {
   const earthRef = useRef<THREE.Group>(null);
   const initialRotationSet = useRef(false);
   
   useFrame((state, delta) => {
     if (earthRef.current) {
-      // Set initial rotation ONCE based on current time
       if (!initialRotationSet.current) {
         const now = new Date();
         const utcHours = now.getUTCHours();
         const utcMinutes = now.getUTCMinutes();
         const utcSeconds = now.getUTCSeconds();
-        
-        // Calculate exact fraction of day elapsed
         const totalSeconds = utcHours * 3600 + utcMinutes * 60 + utcSeconds;
-        const dayFraction = totalSeconds / 86400;
-        
-        // Earth rotates 2π radians per day
+        const dayFraction = totalSeconds / EARTH_ROTATION_PERIOD_SECONDS;
         const initialRotation = dayFraction * Math.PI * 2;
-        
         earthRef.current.rotation.y = initialRotation;
         initialRotationSet.current = true;
         
-        console.log(`UTC Time: ${utcHours}:${utcMinutes}:${utcSeconds}`);
-        console.log(`Day fraction: ${dayFraction.toFixed(6)}`);
-        console.log(`Initial rotation: ${initialRotation.toFixed(6)} rad (${(initialRotation * 180 / Math.PI).toFixed(2)}°)`);
+        console.log(`🌍 Earth initialized at ${utcHours}:${utcMinutes}:${utcSeconds} UTC`);
+        console.log(`🌍 Initial rotation: ${(initialRotation * 180 / Math.PI).toFixed(2)}°`);
       }
       
-      // Only rotate if playing
-      if (!paused && timeScale > 0) {
-        // Earth rotates 2π radians in 86400 seconds
-        // At 1× speed, rotation per second = 2π / 86400 = 0.0000727 rad/s
-        const rotationPerSecond = (Math.PI * 2) / 86400;
-        const rotationThisFrame = rotationPerSecond * delta * timeScale;
-        
+      if (!paused && earthTimeScale > 0) {
+        // Earth rotates independently with its own time scale
+        const rotationPerSecond = (Math.PI * 2) / EARTH_ROTATION_PERIOD_SECONDS;
+        const rotationThisFrame = rotationPerSecond * delta * earthTimeScale;
         earthRef.current.rotation.y += rotationThisFrame;
       }
     }
@@ -345,7 +336,8 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         <ambientLight intensity={0.4} />
         <directionalLight position={[80, 0, 0]} intensity={8} castShadow />
         <StarsField />
-        <RotatingEarth timeScale={timeScale} paused={!playing} />
+        {/* Earth uses timeScale, spacecraft use timeScale independently */}
+        <RotatingEarth earthTimeScale={playing ? timeScale : 0} paused={!playing} />
         
         {orbitPaths.map((path, i) => (
           <Line key={`path-${i}`} points={path} color={missions[i].color} lineWidth={2} transparent opacity={0.7} />
