@@ -335,8 +335,9 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
       <Canvas camera={{ position: [0, 12, 22], fov: 50 }}>
         <color attach="background" args={["#000005"]} />
         <Sun />
-        <ambientLight intensity={0.4} />
-        <directionalLight position={[80, 0, 0]} intensity={8} castShadow />
+        {/* Low ambient + directional for spacecraft; Earth uses its own shader lighting */}
+        <ambientLight intensity={0.15} />
+        <directionalLight position={[80, 0, 0]} intensity={3} />
         <StarsField />
         <RotatingEarth timeScale={timeScale} paused={!playing} />
         
