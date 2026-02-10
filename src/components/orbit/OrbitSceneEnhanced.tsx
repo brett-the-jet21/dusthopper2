@@ -17,9 +17,9 @@ function Sun() {
       <Sphere args={[1, 32, 32]}>
         <meshBasicMaterial color="#ffffff" />
       </Sphere>
-      <pointLight color="#ffffff" intensity={250} distance={400} decay={1} />
+      <pointLight color="#ffffff" intensity={150} distance={400} decay={1} />
       <Sphere args={[3, 32, 32]}>
-        <meshBasicMaterial color="#ffffff" transparent opacity={0.6} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0.4} />
       </Sphere>
     </group>
   );
@@ -71,6 +71,19 @@ function DetailedStarlink() {
       <pointLight color="#00ff88" intensity={5} distance={10} />
     </group>
   );
+}
+
+// Calculate orbital velocity: v = sqrt(GM/r)
+// G = 6.674×10^-11, M_earth = 5.972×10^24 kg
+function calculateOrbitalVelocity(altitudeKm: number): { kms: number; mph: number } {
+  const G = 6.674e-11;
+  const M = 5.972e24;
+  const R_earth = 6371000; // meters
+  const r = R_earth + (altitudeKm * 1000);
+  const v = Math.sqrt((G * M) / r); // m/s
+  const kms = v / 1000;
+  const mph = kms * 0.621371 * 1000;
+  return { kms, mph };
 }
 
 function calculateOrbitalPosition(
@@ -244,6 +257,7 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   const [selectedMission, setSelectedMission] = useState(0);
   const [spacecraftPositions, setSpacecraftPositions] = useState<any[]>([]);
   const [isMobile, setIsMobile] = useState(false);
+  const [telemetryCollapsed, setTelemetryCollapsed] = useState(false);
   
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -301,7 +315,8 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
     });
   };
   
-  const velocityMph = (7.66 * 0.621371 * 1000).toFixed(0);
+  const currentMission = missions[selectedMission];
+  const velocity = calculateOrbitalVelocity(currentMission.altitude);
   const startTimes = [0, 30 * 60, 60 * 60];
   
   return (
@@ -309,8 +324,8 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
       <Canvas camera={{ position: [0, 12, 22], fov: 50 }}>
         <color attach="background" args={["#000005"]} />
         <Sun />
-        <ambientLight intensity={0.6} />
-        <directionalLight position={[80, 0, 0]} intensity={12} castShadow />
+        <ambientLight intensity={0.4} />
+        <directionalLight position={[80, 0, 0]} intensity={8} castShadow />
         <StarsField />
         <RotatingEarth timeScale={timeScale} paused={!playing} />
         
@@ -330,11 +345,10 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         ))}
         
         <SpaceCamera target={spacecraftPositions[selectedMission]} enabled={!freeCam} zoom={zoom} />
-        <EffectComposer><Bloom intensity={3.5} luminanceThreshold={0.1} luminanceSmoothing={0.9} /></EffectComposer>
+        <EffectComposer><Bloom intensity={2.5} luminanceThreshold={0.2} luminanceSmoothing={0.9} /></EffectComposer>
         <OrbitControls enabled={freeCam} enableDamping dampingFactor={0.05} />
       </Canvas>
       
-      {/* MOBILE & DESKTOP HEADER */}
       <div style={{position:'fixed',top:0,left:0,right:0,height:isMobile?60:70,background:'linear-gradient(180deg, rgba(0,15,30,0.98) 0%, rgba(0,10,20,0.95) 100%)',borderBottom:'2px solid rgba(0,200,255,0.4)',display:'flex',alignItems:'center',justifyContent:'space-between',padding:isMobile?'0 12px':'0 30px',zIndex:100,boxShadow:'0 4px 20px rgba(0,0,0,0.8)',flexWrap:isMobile?'wrap':'nowrap'}}>
         <div style={{display:'flex',gap:isMobile?8:15,flexShrink:0}}>
           <button onClick={()=>setFreeCam(!freeCam)} style={{background:freeCam?'linear-gradient(135deg, #00ccff, #0099cc)':'rgba(10,20,30,0.8)',color:freeCam?'#000':'#0cf',border:'2px solid #0cf',padding:isMobile?'8px 12px':'12px 24px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:isMobile?11:13,textTransform:'uppercase',letterSpacing:1,boxShadow:freeCam?'0 0 20px rgba(0,204,255,0.6)':'none',transition:'all 0.2s',whiteSpace:'nowrap'}}>{freeCam?(isMobile?'FREE':'🎥 FREE CAM'):(isMobile?'TRACK':'🎯 TRACKING')}</button>
@@ -352,7 +366,6 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         </div>
       </div>
       
-      {/* ZOOM CONTROLS */}
       {!isMobile && (
         <div style={{position:'fixed',left:25,top:'50%',transform:'translateY(-50%)',display:'flex',flexDirection:'column',gap:10,background:'rgba(0,15,30,0.95)',padding:15,borderRadius:8,border:'2px solid rgba(0,200,255,0.4)',zIndex:100,boxShadow:'0 8px 24px rgba(0,0,0,0.8)'}}>
           <button onClick={()=>setZoom(z=>Math.min(z*1.3,4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'10px 16px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:20,lineHeight:1}}>+</button>
@@ -361,7 +374,6 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         </div>
       )}
       
-      {/* MOBILE ZOOM (PINCH TO ZOOM GESTURES HANDLED BY OrbitControls) */}
       {isMobile && (
         <div style={{position:'fixed',left:10,bottom:100,display:'flex',flexDirection:'column',gap:8,background:'rgba(0,15,30,0.95)',padding:10,borderRadius:8,border:'2px solid rgba(0,200,255,0.4)',zIndex:100}}>
           <button onClick={()=>setZoom(z=>Math.min(z*1.3,4))} style={{background:'rgba(10,20,30,0.8)',color:'#0cf',border:'2px solid #0cf',padding:'8px 12px',borderRadius:6,cursor:'pointer',fontWeight:700,fontSize:18,lineHeight:1}}>+</button>
@@ -369,20 +381,21 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         </div>
       )}
       
-      {/* MISSION SELECTOR */}
       <div style={{position:'fixed',bottom:isMobile?10:25,left:'50%',transform:'translateX(-50%)',display:'flex',gap:isMobile?8:18,zIndex:100,flexWrap:'wrap',justifyContent:'center',maxWidth:isMobile?'90%':'auto'}}>{missions.map((m,i)=><button key={i} onClick={()=>setSelectedMission(i)} style={{background:i===selectedMission?`linear-gradient(135deg,${m.color},${m.color}dd)`:'rgba(0,15,30,0.95)',color:i===selectedMission?'#000':'#fff',border:`2px solid ${m.color}`,padding:isMobile?'8px 16px':'14px 32px',borderRadius:8,cursor:'pointer',fontWeight:700,fontSize:isMobile?10:13,letterSpacing:1,textTransform:'uppercase',boxShadow:i===selectedMission?`0 0 30px ${m.color}80, 0 8px 20px rgba(0,0,0,0.8)`:'0 4px 12px rgba(0,0,0,0.6)',transition:'all 0.3s',whiteSpace:'nowrap'}}>{isMobile?m.name.split(' ')[0]:m.name}</button>)}</div>
       
-      {/* TELEMETRY PANEL */}
-      <div style={{position:'fixed',top:isMobile?70:90,right:isMobile?10:25,width:isMobile?'calc(100% - 20px)':280,maxWidth:isMobile?400:280,background:'rgba(0,15,30,0.98)',border:'2px solid rgba(0,200,255,0.4)',borderRadius:10,padding:isMobile?'12px 16px':'20px 24px',color:'#0cf',fontSize:isMobile?10:12,fontFamily:'monospace',boxShadow:'0 8px 32px rgba(0,0,0,0.9)',zIndex:100}}>
+      {/* COLLAPSIBLE TELEMETRY PANEL */}
+      <div style={{position:'fixed',top:isMobile?70:90,right:telemetryCollapsed?-280:isMobile?10:25,width:isMobile?'calc(100% - 20px)':280,maxWidth:isMobile?400:280,background:'rgba(0,15,30,0.98)',border:'2px solid rgba(0,200,255,0.4)',borderRadius:10,padding:isMobile?'12px 16px':'20px 24px',color:'#0cf',fontSize:isMobile?10:12,fontFamily:'monospace',boxShadow:'0 8px 32px rgba(0,0,0,0.9)',zIndex:100,transition:'right 0.3s ease'}}>
+        <button onClick={()=>setTelemetryCollapsed(!telemetryCollapsed)} style={{position:'absolute',left:-40,top:20,background:'rgba(0,15,30,0.98)',border:'2px solid rgba(0,200,255,0.4)',borderRadius:'8px 0 0 8px',padding:'10px 8px',cursor:'pointer',color:'#0cf',fontWeight:700,fontSize:16}}>{telemetryCollapsed?'◀':'▶'}</button>
+        
         <div style={{display:'flex',alignItems:'center',gap:isMobile?8:12,marginBottom:isMobile?12:18,paddingBottom:isMobile?10:16,borderBottom:'2px solid rgba(0,200,255,0.3)'}}>
           <div style={{width:isMobile?8:10,height:isMobile?8:10,borderRadius:'50%',background:'#0f8',boxShadow:'0 0 15px #0f8'}}/>
-          <div style={{fontWeight:700,fontSize:isMobile?13:15,letterSpacing:0.5}}>{missions[selectedMission].name}</div>
+          <div style={{fontWeight:700,fontSize:isMobile?13:15,letterSpacing:0.5}}>{currentMission.name}</div>
         </div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>ALTITUDE</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{missions[selectedMission].altitude} km</span></div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>VELOCITY</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>7.66 km/s</span></div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>VELOCITY 🇺🇸</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{velocityMph} mph</span></div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>INCLINATION</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{missions[selectedMission].inclination.toFixed(4)}°</span></div>
-        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?10:16,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>PERIOD</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{missions[selectedMission].period.toFixed(1)} min</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>ALTITUDE</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{currentMission.altitude} km</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>VELOCITY</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{velocity.kms.toFixed(2)} km/s</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>VELOCITY 🇺🇸</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{Math.round(velocity.mph)} mph</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?6:10,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>INCLINATION</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{currentMission.inclination.toFixed(4)}°</span></div>
+        <div style={{display:'flex',justifyContent:'space-between',marginBottom:isMobile?10:16,padding:isMobile?'4px 0':'8px 0'}}><span style={{opacity:0.8,letterSpacing:0.5}}>PERIOD</span><span style={{fontWeight:700,color:'#0ff',fontSize:isMobile?11:13}}>{currentMission.period.toFixed(1)} min</span></div>
         <div style={{borderTop:'2px solid rgba(0,200,255,0.3)',paddingTop:isMobile?10:14}}><div style={{opacity:0.7,fontSize:isMobile?9:11,marginBottom:isMobile?4:6,letterSpacing:0.5}}>TIME MULTIPLIER</div><div style={{fontWeight:700,fontSize:isMobile?16:18,color:'#00ff88'}}>{timeScale}× {timeScale===1&&'🦅'}</div></div>
       </div>
     </div>
