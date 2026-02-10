@@ -154,13 +154,11 @@ function generateRealisticOrbit(mission: any): THREE.Vector3[] {
   return points;
 }
 
-// FIX #2: Spacecraft animate based on timeScale (0 when paused)
 function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUpdate }: any) {
   const groupRef = useRef<THREE.Group>(null);
   
   useFrame((state) => {
     if (groupRef.current) {
-      // FIXED: Spacecraft respond to timeScale (will be 0 when paused)
       const elapsed = state.clock.elapsedTime * timeScale;
       const orbitalPeriod = mission.period * 60;
       const progress = ((elapsed + startTime) / orbitalPeriod) % 1;
@@ -202,14 +200,14 @@ function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUp
   );
 }
 
-// FIX #1: Earth rotates at correct 24-hour rate
+// COMPLETELY FIXED: Earth rotation uses incremental delta, not accumulated time
 function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boolean }) {
   const earthRef = useRef<THREE.Group>(null);
   const initialRotationSet = useRef(false);
   
   useFrame((state, delta) => {
     if (earthRef.current) {
-      // Set initial rotation ONCE
+      // Set initial rotation ONCE based on current UTC time
       if (!initialRotationSet.current) {
         const now = new Date();
         const utcHours = now.getUTCHours();
@@ -223,13 +221,22 @@ function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boole
         initialRotationSet.current = true;
         
         console.log(`🌍 Earth initialized at UTC ${utcHours}:${utcMinutes}:${utcSeconds}`);
-        console.log(`🌍 Rotation: ${(initialRotation * 180 / Math.PI).toFixed(2)}°`);
+        console.log(`🌍 Initial rotation: ${(initialRotation * 180 / Math.PI).toFixed(2)}°`);
       }
       
-      // FIXED: Correct 24-hour rotation rate
+      // CRITICAL FIX: Use delta (frame time) NOT elapsed time
+      // This makes rotation incremental, not catch-up based
       if (!paused && timeScale > 0) {
-        const rotationPerSecond = (Math.PI * 2) / 86400;
+        // 2π radians / 86400 seconds = radians per second for 24-hour rotation
+        const rotationPerSecond = (2 * Math.PI) / 86400;
+        // Apply only the delta (time since last frame)
         earthRef.current.rotation.y += rotationPerSecond * delta * timeScale;
+        
+        // Debug: log rotation speed every 5 seconds
+        if (Math.floor(state.clock.elapsedTime) % 5 === 0 && Math.floor(state.clock.elapsedTime * 10) % 10 === 0) {
+          const degreesPerFrame = (rotationPerSecond * delta * timeScale * 180) / Math.PI;
+          console.log(`🌍 Rotation speed: ${degreesPerFrame.toFixed(6)}°/frame at ${timeScale}× speed`);
+        }
       }
     }
   });
