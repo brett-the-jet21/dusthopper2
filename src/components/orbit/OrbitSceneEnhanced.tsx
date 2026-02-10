@@ -156,10 +156,14 @@ function generateRealisticOrbit(mission: any): THREE.Vector3[] {
 
 function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUpdate }: any) {
   const groupRef = useRef<THREE.Group>(null);
+  const simulationTimeRef = useRef(0);
   
-  useFrame((state) => {
+  useFrame((state, delta) => {
     if (groupRef.current) {
-      const elapsed = state.clock.elapsedTime * timeScale;
+      // Accumulate simulation time using delta
+      simulationTimeRef.current += delta * timeScale;
+      
+      const elapsed = simulationTimeRef.current;
       const orbitalPeriod = mission.period * 60;
       const progress = ((elapsed + startTime) / orbitalPeriod) % 1;
       const meanAnomaly = progress * 360;
@@ -200,14 +204,15 @@ function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUp
   );
 }
 
-// COMPLETELY FIXED: Earth rotation uses incremental delta, not accumulated time
+// THE REAL FIX: Use same accumulation pattern as spacecraft
 function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boolean }) {
   const earthRef = useRef<THREE.Group>(null);
   const initialRotationSet = useRef(false);
+  const simulationTimeRef = useRef(0);
+  const lastLogTimeRef = useRef(0);
   
   useFrame((state, delta) => {
     if (earthRef.current) {
-      // Set initial rotation ONCE based on current UTC time
       if (!initialRotationSet.current) {
         const now = new Date();
         const utcHours = now.getUTCHours();
@@ -222,20 +227,35 @@ function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boole
         
         console.log(`🌍 Earth initialized at UTC ${utcHours}:${utcMinutes}:${utcSeconds}`);
         console.log(`🌍 Initial rotation: ${(initialRotation * 180 / Math.PI).toFixed(2)}°`);
+        console.log(`🌍 Expected rotation rate at 1×: ${((2 * Math.PI / 86400) * 180 / Math.PI).toFixed(8)}°/sec`);
       }
       
-      // CRITICAL FIX: Use delta (frame time) NOT elapsed time
-      // This makes rotation incremental, not catch-up based
       if (!paused && timeScale > 0) {
-        // 2π radians / 86400 seconds = radians per second for 24-hour rotation
-        const rotationPerSecond = (2 * Math.PI) / 86400;
-        // Apply only the delta (time since last frame)
-        earthRef.current.rotation.y += rotationPerSecond * delta * timeScale;
+        // Accumulate simulation time
+        simulationTimeRef.current += delta * timeScale;
         
-        // Debug: log rotation speed every 5 seconds
-        if (Math.floor(state.clock.elapsedTime) % 5 === 0 && Math.floor(state.clock.elapsedTime * 10) % 10 === 0) {
-          const degreesPerFrame = (rotationPerSecond * delta * timeScale * 180) / Math.PI;
-          console.log(`🌍 Rotation speed: ${degreesPerFrame.toFixed(6)}°/frame at ${timeScale}× speed`);
+        // Earth rotates 360° every 86400 seconds (24 hours) in real time
+        // At 1× speed: should take 24 hours for full rotation
+        // At 60× speed: should take 24 minutes for full rotation
+        const SECONDS_PER_DAY = 86400;
+        const rotationAngle = (simulationTimeRef.current / SECONDS_PER_DAY) * (Math.PI * 2);
+        
+        // Set absolute rotation based on simulation time
+        const now = new Date();
+        const utcHours = now.getUTCHours();
+        const utcMinutes = now.getUTCMinutes();
+        const utcSeconds = now.getUTCSeconds();
+        const totalSeconds = utcHours * 3600 + utcMinutes * 60 + utcSeconds;
+        const initialRotation = (totalSeconds / 86400) * Math.PI * 2;
+        
+        earthRef.current.rotation.y = initialRotation + rotationAngle;
+        
+        // Debug logging every 2 seconds
+        if (state.clock.elapsedTime - lastLogTimeRef.current > 2) {
+          const degreesRotated = (rotationAngle * 180) / Math.PI;
+          const simMinutes = simulationTimeRef.current / 60;
+          console.log(`🌍 Sim time: ${simMinutes.toFixed(2)}min | Rotation: ${degreesRotated.toFixed(4)}° | TimeScale: ${timeScale}×`);
+          lastLogTimeRef.current = state.clock.elapsedTime;
         }
       }
     }
