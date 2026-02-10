@@ -204,63 +204,36 @@ function OrbitingSpacecraft({ mission, index, timeScale, startTime, onPositionUp
   );
 }
 
-// THE REAL FIX: Use same accumulation pattern as spacecraft
 function RotatingEarth({ timeScale, paused }: { timeScale: number; paused: boolean }) {
   const earthRef = useRef<THREE.Group>(null);
-  const initialRotationSet = useRef(false);
   const simulationTimeRef = useRef(0);
-  const lastLogTimeRef = useRef(0);
-  
-  useFrame((state, delta) => {
-    if (earthRef.current) {
-      if (!initialRotationSet.current) {
-        const now = new Date();
-        const utcHours = now.getUTCHours();
-        const utcMinutes = now.getUTCMinutes();
-        const utcSeconds = now.getUTCSeconds();
-        const totalSeconds = utcHours * 3600 + utcMinutes * 60 + utcSeconds;
-        const dayFraction = totalSeconds / 86400;
-        const initialRotation = dayFraction * Math.PI * 2;
-        
-        earthRef.current.rotation.y = initialRotation;
-        initialRotationSet.current = true;
-        
-        console.log(`🌍 Earth initialized at UTC ${utcHours}:${utcMinutes}:${utcSeconds}`);
-        console.log(`🌍 Initial rotation: ${(initialRotation * 180 / Math.PI).toFixed(2)}°`);
-        console.log(`🌍 Expected rotation rate at 1×: ${((2 * Math.PI / 86400) * 180 / Math.PI).toFixed(8)}°/sec`);
-      }
-      
-      if (!paused && timeScale > 0) {
-        // Accumulate simulation time
-        simulationTimeRef.current += delta * timeScale;
-        
-        // Earth rotates 360° every 86400 seconds (24 hours) in real time
-        // At 1× speed: should take 24 hours for full rotation
-        // At 60× speed: should take 24 minutes for full rotation
-        const SECONDS_PER_DAY = 86400;
-        const rotationAngle = (simulationTimeRef.current / SECONDS_PER_DAY) * (Math.PI * 2);
-        
-        // Set absolute rotation based on simulation time
-        const now = new Date();
-        const utcHours = now.getUTCHours();
-        const utcMinutes = now.getUTCMinutes();
-        const utcSeconds = now.getUTCSeconds();
-        const totalSeconds = utcHours * 3600 + utcMinutes * 60 + utcSeconds;
-        const initialRotation = (totalSeconds / 86400) * Math.PI * 2;
-        
-        earthRef.current.rotation.y = initialRotation + rotationAngle;
-        
-        // Debug logging every 2 seconds
-        if (state.clock.elapsedTime - lastLogTimeRef.current > 2) {
-          const degreesRotated = (rotationAngle * 180) / Math.PI;
-          const simMinutes = simulationTimeRef.current / 60;
-          console.log(`🌍 Sim time: ${simMinutes.toFixed(2)}min | Rotation: ${degreesRotated.toFixed(4)}° | TimeScale: ${timeScale}×`);
-          lastLogTimeRef.current = state.clock.elapsedTime;
-        }
-      }
+
+  useFrame((_, delta) => {
+    if (!earthRef.current) return;
+
+    // Earth's rotation is always driven by the real UTC clock.
+    // On THREE.js SphereGeometry the texture center (0° longitude, Prime Meridian)
+    // maps to the +X axis at rotation.y = 0.  The Sun sits at [80,0,0] (+X),
+    // so rotation.y = 0 corresponds to solar noon at Greenwich (UTC 12:00).
+    const now = new Date();
+    const totalMs =
+      now.getUTCHours() * 3600000 +
+      now.getUTCMinutes() * 60000 +
+      now.getUTCSeconds() * 1000 +
+      now.getUTCMilliseconds();
+    const dayFraction = totalMs / 86400000;
+    const realTimeRotation = (dayFraction - 0.5) * Math.PI * 2;
+
+    // When playing at accelerated speed, accumulate extra rotation on top of real-time.
+    // timeScale 1 = real-time only, timeScale 60 = 59× extra + 1× real = 60× total.
+    if (!paused && timeScale > 1) {
+      simulationTimeRef.current += delta * (timeScale - 1);
     }
+    const extraRotation = (simulationTimeRef.current / 86400) * Math.PI * 2;
+
+    earthRef.current.rotation.y = realTimeRotation + extraRotation;
   });
-  
+
   return (
     <group ref={earthRef}>
       <EarthPro />
