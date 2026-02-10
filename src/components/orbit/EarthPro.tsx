@@ -78,9 +78,10 @@ export function EarthPro() {
     });
   }, []);
 
+  // Earth rotation is handled by the parent RotatingEarth group in OrbitSceneEnhanced.
+  // Only apply a tiny differential rotation to clouds for subtle drift effect.
   useFrame((_, dt) => {
-    if (earthRef.current) earthRef.current.rotation.y += dt * 0.06;
-    if (cloudsRef.current) cloudsRef.current.rotation.y += dt * 0.09;
+    if (cloudsRef.current) cloudsRef.current.rotation.y += dt * 0.0002;
   });
 
   return (
