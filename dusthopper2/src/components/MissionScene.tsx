@@ -2,25 +2,57 @@
 
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
+import Earth from "./Earth";
+import Rocket from "./Rocket";
 
-export default function MissionScene() {
+type SceneProps = {
+  /** 0 = on pad, 1 = in orbit, -1 = no active launch */
+  launchProgress?: number;
+};
+
+export default function MissionScene({ launchProgress = -1 }: SceneProps) {
   return (
     <Canvas
-      camera={{ position: [0, 2, 6], fov: 60 }}
-      style={{ height: "100vh", background: "black" }}
+      camera={{ position: [0, 1.5, 5.5], fov: 50 }}
+      style={{ width: "100%", height: "100%" }}
+      gl={{
+        antialias: true,
+        toneMapping: 4, // ACESFilmic
+        toneMappingExposure: 1.1,
+      }}
     >
-      <Stars radius={300} depth={60} count={2000} factor={7} />
+      {/* Deep-space starfield */}
+      <Stars radius={400} depth={80} count={4000} factor={5} saturation={0.2} />
 
-      <ambientLight intensity={0.6} />
-      <directionalLight position={[5, 5, 5]} intensity={1.2} />
+      {/* Lighting */}
+      <ambientLight intensity={0.15} />
+      <directionalLight
+        position={[10, 6, 10]}
+        intensity={2.5}
+        color="#fff5e6"
+        castShadow
+      />
+      <directionalLight position={[-5, -3, -5]} intensity={0.3} color="#4477aa" />
 
-      {/* Earth placeholder */}
-      <mesh>
-        <sphereGeometry args={[1.5, 64, 64]} />
-        <meshStandardMaterial color="#1e90ff" />
-      </mesh>
+      {/* HD Earth */}
+      <Earth radius={1.55} />
 
-      <OrbitControls enablePan enableZoom enableRotate zoomSpeed={0.6} rotateSpeed={0.5} />
+      {/* Rocket — only shown during active launch */}
+      {launchProgress >= 0 && (
+        <Rocket launchProgress={launchProgress} padPosition={[0, 1.6, 0]} />
+      )}
+
+      <OrbitControls
+        enablePan={false}
+        enableZoom
+        enableRotate
+        zoomSpeed={0.5}
+        rotateSpeed={0.4}
+        minDistance={2.5}
+        maxDistance={15}
+        autoRotate
+        autoRotateSpeed={0.15}
+      />
     </Canvas>
   );
 }
