@@ -15,6 +15,14 @@ import * as THREE from "three";
 
 import { EarthPro } from "./EarthPro";
 import { StarsField } from "./StarsField";
+import { Falcon9LaunchScene, LaunchCamera } from "../spacex/Falcon9LaunchScene";
+import {
+  type LaunchProfile,
+  type UpcomingLaunch,
+  FALCON9_LEO,
+  FALLBACK_LAUNCHES,
+  interpolateTrajectory,
+} from "../spacex/launchProfiles";
 
 const EARTH_RADIUS = 6.371;
 
@@ -280,6 +288,51 @@ function useUTCClock() {
 }
 
 /* ====================================================================
+   SpaceX upcoming launches hook
+   ==================================================================== */
+
+function useUpcomingLaunches() {
+  const [launches, setLaunches] = useState<UpcomingLaunch[]>(FALLBACK_LAUNCHES);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch("https://api.spacexdata.com/v4/launches/upcoming");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!mounted || !Array.isArray(data) || data.length === 0) return;
+        const mapped: UpcomingLaunch[] = data.slice(0, 5).map((l: any) => ({
+          id: l.id,
+          name: l.name,
+          date_utc: l.date_utc,
+          rocket: "Falcon 9",
+          launchpad: l.launchpad || "KSC LC-39A",
+          details: l.details,
+          profile: FALCON9_LEO,
+        }));
+        setLaunches(mapped);
+      } catch { /* use fallback */ }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  return launches;
+}
+
+/* ====================================================================
+   Format T+ time
+   ==================================================================== */
+
+function formatTPlus(seconds: number): string {
+  const neg = seconds < 0;
+  const abs = Math.abs(Math.floor(seconds));
+  const m = Math.floor(abs / 60);
+  const s = abs % 60;
+  return `T${neg ? "-" : "+"}${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+/* ====================================================================
    Styles (shared)
    ==================================================================== */
 
@@ -321,8 +374,42 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
   const [isMobile, setIsMobile] = useState(false);
   const [showTelemetry, setShowTelemetry] = useState(true);
 
+  // --- Launch mode ---
+  const [launchMode, setLaunchMode] = useState(false);
+  const [activeLaunch, setActiveLaunch] = useState<UpcomingLaunch | null>(null);
+  const [launchT, setLaunchT] = useState(-10); // T-10 countdown
+  const [launchPlaying, setLaunchPlaying] = useState(false);
+  const [trackBooster, setTrackBooster] = useState(false);
+  const [rocketPos, setRocketPos] = useState<number[] | null>(null);
+  const [boosterPos, setBoosterPos] = useState<number[] | null>(null);
+  const [showLaunchPicker, setShowLaunchPicker] = useState(false);
+  const launchInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const issData = useISSLive();
   const utcTime = useUTCClock();
+  const upcomingLaunches = useUpcomingLaunches();
+
+  // Launch timer
+  useEffect(() => {
+    if (launchPlaying && activeLaunch) {
+      launchInterval.current = setInterval(() => {
+        setLaunchT((prev) => prev + 0.05);
+      }, 50);
+    } else if (launchInterval.current) {
+      clearInterval(launchInterval.current);
+    }
+    return () => { if (launchInterval.current) clearInterval(launchInterval.current); };
+  }, [launchPlaying, activeLaunch]);
+
+  const startLaunch = useCallback((launch: UpcomingLaunch) => {
+    setActiveLaunch(launch);
+    setLaunchMode(true);
+    setLaunchT(-10);
+    setLaunchPlaying(true);
+    setTrackBooster(false);
+    setFreeCam(false);
+    setShowLaunchPicker(false);
+  }, []);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -391,7 +478,26 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
           />
         ))}
 
-        <SpaceCamera target={positions[selectedMission]} enabled={!freeCam} zoom={zoom} />
+        {/* ---- Launch simulation ---- */}
+        {launchMode && activeLaunch && launchT >= 0 && (
+          <Falcon9LaunchScene
+            launchT={launchT}
+            profile={activeLaunch.profile}
+            trackBooster={trackBooster}
+            onRocketPosition={setRocketPos}
+            onBoosterPosition={setBoosterPos}
+          />
+        )}
+
+        {/* ---- Cameras ---- */}
+        {launchMode ? (
+          <LaunchCamera
+            target={trackBooster ? boosterPos : rocketPos}
+            enabled={!freeCam}
+          />
+        ) : (
+          <SpaceCamera target={positions[selectedMission]} enabled={!freeCam} zoom={zoom} />
+        )}
         <EffectComposer>
           <Bloom intensity={0.6} luminanceThreshold={0.35} luminanceSmoothing={0.9} />
         </EffectComposer>
@@ -453,7 +559,14 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
             />
             <span style={{ fontSize: 10, fontWeight: 700, color: "#0f8", letterSpacing: 1 }}>LIVE</span>
           </div>
-          <span style={{ fontSize: isMobile ? 13 : 15, fontWeight: 700, letterSpacing: 0.5 }}>{cur.name}</span>
+          <span style={{ fontSize: isMobile ? 13 : 15, fontWeight: 700, letterSpacing: 0.5 }}>
+            {launchMode && activeLaunch ? activeLaunch.name : cur.name}
+          </span>
+          {launchMode && (
+            <span style={{ fontSize: 14, fontWeight: 700, color: launchT < 0 ? "#f44" : "#0f8", fontVariantNumeric: "tabular-nums", marginLeft: 8 }}>
+              {formatTPlus(launchT)}
+            </span>
+          )}
         </div>
 
         {/* Right: UTC clock + controls */}
@@ -541,17 +654,39 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
             </div>
 
             {/* Telemetry rows */}
-            <TelRow label="ALTITUDE" value={`${liveAlt.toFixed(1)} km`} live={selectedMission === 0 && !!issData} />
-            <TelRow label="VELOCITY" value={`${(liveVel / 3600).toFixed(2)} km/s`} live={selectedMission === 0 && !!issData} />
-            <TelRow label="SPEED" value={`${Math.round(liveVel * 0.621371)} mph`} />
-            {liveLat !== null && <TelRow label="LATITUDE" value={`${liveLat.toFixed(4)}°`} live />}
-            {liveLon !== null && <TelRow label="LONGITUDE" value={`${liveLon.toFixed(4)}°`} live />}
-            <TelRow label="INCLINATION" value={`${cur.inclination.toFixed(4)}°`} />
-            <TelRow label="PERIOD" value={`${cur.period.toFixed(1)} min`} />
+            {launchMode && activeLaunch ? (
+              <LaunchTelemetry launchT={launchT} profile={activeLaunch.profile} trackBooster={trackBooster} />
+            ) : (
+              <>
+                <TelRow label="ALTITUDE" value={`${liveAlt.toFixed(1)} km`} live={selectedMission === 0 && !!issData} />
+                <TelRow label="VELOCITY" value={`${(liveVel / 3600).toFixed(2)} km/s`} live={selectedMission === 0 && !!issData} />
+                <TelRow label="SPEED" value={`${Math.round(liveVel * 0.621371)} mph`} />
+                {liveLat !== null && <TelRow label="LATITUDE" value={`${liveLat.toFixed(4)}°`} live />}
+                {liveLon !== null && <TelRow label="LONGITUDE" value={`${liveLon.toFixed(4)}°`} live />}
+                <TelRow label="INCLINATION" value={`${cur.inclination.toFixed(4)}°`} />
+                <TelRow label="PERIOD" value={`${cur.period.toFixed(1)} min`} />
+              </>
+            )}
 
             <div style={{ borderTop: "1px solid rgba(0, 200, 255, 0.2)", marginTop: 10, paddingTop: 10 }}>
-              <div style={{ opacity: 0.6, fontSize: 10, marginBottom: 4, letterSpacing: 0.5 }}>TIME SCALE</div>
-              <div style={{ fontWeight: 700, fontSize: 16, color: "#00ff88" }}>{timeScale}x {timeScale === 1 && "REAL-TIME"}</div>
+              {launchMode ? (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button onClick={() => setLaunchPlaying((p) => !p)} style={{ ...pill, fontSize: 10 }}>
+                    {launchPlaying ? "PAUSE" : "PLAY"}
+                  </button>
+                  <button onClick={() => setTrackBooster((b) => !b)} style={{ ...pill, fontSize: 10, ...(trackBooster ? { background: "#0cf", color: "#000" } : {}) }}>
+                    {trackBooster ? "BOOSTER" : "STAGE 2"}
+                  </button>
+                  <button onClick={() => { setLaunchMode(false); setActiveLaunch(null); setLaunchPlaying(false); }} style={{ ...pill, fontSize: 10, borderColor: "#f44", color: "#f44" }}>
+                    EXIT
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div style={{ opacity: 0.6, fontSize: 10, marginBottom: 4, letterSpacing: 0.5 }}>TIME SCALE</div>
+                  <div style={{ fontWeight: 700, fontSize: 16, color: "#00ff88" }}>{timeScale}x {timeScale === 1 && "REAL-TIME"}</div>
+                </>
+              )}
             </div>
           </>
         )}
@@ -603,11 +738,11 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         }}
       >
         {missions.map((m, i) => {
-          const active = i === selectedMission;
+          const active = i === selectedMission && !launchMode;
           return (
             <button
               key={i}
-              onClick={() => setSelectedMission(i)}
+              onClick={() => { setSelectedMission(i); setLaunchMode(false); setActiveLaunch(null); setLaunchPlaying(false); }}
               style={{
                 background: active ? m.color : "transparent",
                 color: active ? "#000" : "#fff",
@@ -631,6 +766,30 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
             </button>
           );
         })}
+        {/* SpaceX Launches button */}
+        <button
+          onClick={() => setShowLaunchPicker(true)}
+          style={{
+            background: launchMode ? "#ff4444" : "transparent",
+            color: launchMode ? "#000" : "#fff",
+            border: isMobile ? "none" : "1px solid #ff4444",
+            borderRadius: isMobile ? 0 : 8,
+            padding: isMobile ? "14px 0" : "10px 28px",
+            flex: isMobile ? 1 : undefined,
+            cursor: "pointer",
+            fontWeight: 700,
+            fontSize: isMobile ? 10 : 12,
+            letterSpacing: 1,
+            textTransform: "uppercase" as const,
+            fontFamily: "inherit",
+            transition: "all 0.2s",
+            borderBottom: isMobile && launchMode ? "3px solid #ff4444" : isMobile ? "3px solid transparent" : undefined,
+            boxShadow: !isMobile && launchMode ? "0 0 20px rgba(255,68,68,0.4)" : "none",
+            WebkitTapHighlightColor: "transparent",
+          }}
+        >
+          {isMobile ? "LAUNCH" : "SPACEX LAUNCHES"}
+        </button>
       </div>
 
       {/* ---- Mobile: bottom controls row (above mission tabs) ---- */}
@@ -688,6 +847,78 @@ export function OrbitSceneEnhanced({ missionId }: { missionId: string }) {
         </div>
       )}
 
+      {/* ---- SpaceX Launch Picker ---- */}
+      {showLaunchPicker && (
+        <div
+          style={{
+            position: "fixed",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            ...glassPanel,
+            padding: 20,
+            width: isMobile ? "90%" : 400,
+            maxHeight: "70vh",
+            overflow: "auto",
+            zIndex: 200,
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <span style={{ fontWeight: 700, fontSize: 16 }}>SPACEX LAUNCHES</span>
+            <button onClick={() => setShowLaunchPicker(false)} style={{ background: "none", border: "none", color: "#0cf", fontSize: 20, cursor: "pointer" }}>×</button>
+          </div>
+          {upcomingLaunches.map((launch) => {
+            const date = new Date(launch.date_utc);
+            const isNow = Math.abs(date.getTime() - Date.now()) < 3600000;
+            return (
+              <button
+                key={launch.id}
+                onClick={() => startLaunch(launch)}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  ...glassPanel,
+                  padding: 14,
+                  marginBottom: 8,
+                  cursor: "pointer",
+                  border: isNow ? "1px solid #f44" : "1px solid rgba(0, 200, 255, 0.2)",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>{launch.name}</span>
+                  {isNow && <span style={{ fontSize: 9, fontWeight: 700, color: "#f44", background: "rgba(255,68,68,0.15)", padding: "2px 6px", borderRadius: 4 }}>NOW</span>}
+                </div>
+                <div style={{ fontSize: 10, opacity: 0.7 }}>
+                  {launch.rocket} · {launch.launchpad}
+                </div>
+                <div style={{ fontSize: 10, opacity: 0.5, marginTop: 4 }}>
+                  {date.toLocaleDateString()} {date.toLocaleTimeString()} UTC
+                </div>
+                {launch.details && (
+                  <div style={{ fontSize: 10, opacity: 0.6, marginTop: 6, lineHeight: 1.4 }}>
+                    {launch.details.slice(0, 100)}{launch.details.length > 100 ? "…" : ""}
+                  </div>
+                )}
+              </button>
+            );
+          })}
+          <div style={{ fontSize: 10, opacity: 0.4, marginTop: 10, textAlign: "center" }}>
+            Data from SpaceX API · Trajectories are simulated
+          </div>
+        </div>
+      )}
+
+      {/* ---- SpaceX Launch Picker backdrop ---- */}
+      {showLaunchPicker && (
+        <div onClick={() => setShowLaunchPicker(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 199 }} />
+      )}
+
+      {/* ---- Launch events timeline overlay ---- */}
+      {launchMode && activeLaunch && (
+        <LaunchEventsBar events={activeLaunch.profile.events} launchT={launchT} isMobile={isMobile} />
+      )}
+
       {/* ---- Pulse animation ---- */}
       <style>{`
         @keyframes pulse {
@@ -711,6 +942,132 @@ function TelRow({ label, value, live }: { label: string; value: string; live?: b
         {value}
         {live && <span style={{ color: "#0f8", fontSize: 8, marginLeft: 4, verticalAlign: "super" }}>LIVE</span>}
       </span>
+    </div>
+  );
+}
+
+/* ====================================================================
+   Launch telemetry panel content
+   ==================================================================== */
+
+function LaunchTelemetry({
+  launchT,
+  profile,
+  trackBooster,
+}: {
+  launchT: number;
+  profile: LaunchProfile;
+  trackBooster: boolean;
+}) {
+  const source = trackBooster ? profile.boosterReturn : profile.trajectory;
+  const traj = interpolateTrajectory(source, launchT);
+  if (!traj) return <div style={{ opacity: 0.5, padding: 8 }}>Awaiting launch…</div>;
+
+  return (
+    <>
+      <TelRow label="T+" value={formatTPlus(launchT)} />
+      <TelRow label="ALTITUDE" value={`${traj.alt.toFixed(1)} km`} />
+      <TelRow label="VELOCITY" value={`${traj.vel.toFixed(0)} m/s`} />
+      <TelRow label="SPEED" value={`${Math.round(traj.vel * 2.237)} mph`} />
+      <TelRow label="DOWNRANGE" value={`${traj.downrange.toFixed(1)} km`} />
+      <TelRow label="THROTTLE" value={`${Math.round(traj.throttle * 100)}%`} />
+    </>
+  );
+}
+
+/* ====================================================================
+   Launch events horizontal timeline bar
+   ==================================================================== */
+
+function LaunchEventsBar({
+  events,
+  launchT,
+  isMobile,
+}: {
+  events: { t: number; label: string; type: string }[];
+  launchT: number;
+  isMobile: boolean;
+}) {
+  const maxT = events[events.length - 1]?.t || 600;
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        left: isMobile ? 8 : 60,
+        right: isMobile ? 8 : 320,
+        bottom: isMobile ? 100 : 70,
+        height: 32,
+        background: "rgba(0, 8, 20, 0.8)",
+        borderRadius: 6,
+        border: "1px solid rgba(0, 200, 255, 0.15)",
+        zIndex: 100,
+        overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        padding: "0 4px",
+      }}
+    >
+      {/* Progress bar */}
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: `${Math.min(100, (launchT / maxT) * 100)}%`,
+          background: "rgba(255, 68, 68, 0.15)",
+          borderRight: "2px solid #f44",
+          transition: "width 0.1s linear",
+        }}
+      />
+      {/* Event markers */}
+      {events.map((evt, i) => {
+        const pct = (evt.t / maxT) * 100;
+        const passed = launchT >= evt.t;
+        return (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              left: `${pct}%`,
+              top: 0,
+              bottom: 0,
+              display: "flex",
+              alignItems: "center",
+              zIndex: 1,
+            }}
+          >
+            <div
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: passed ? "#0f8" : "rgba(0, 200, 255, 0.4)",
+                boxShadow: passed ? "0 0 6px #0f8" : "none",
+                marginLeft: -3,
+              }}
+            />
+            {!isMobile && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: -16,
+                  left: -20,
+                  fontSize: 8,
+                  fontWeight: 600,
+                  color: passed ? "#0f8" : "rgba(0, 200, 255, 0.5)",
+                  whiteSpace: "nowrap",
+                  fontFamily: "monospace",
+                  letterSpacing: 0.5,
+                }}
+              >
+                {evt.label}
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
