@@ -1,26 +1,14 @@
 "use client";
 
 import { useRef, useMemo, Suspense } from "react";
-import { useFrame, useLoader } from "@react-three/fiber";
+import { useFrame } from "@react-three/fiber";
+import { useTexture } from "@react-three/drei";
 import * as THREE from "three";
-import { TextureLoader } from "three";
 
 /* ------------------------------------------------------------------
-   Photorealistic Earth using NASA visible-earth textures.
-   Uses Blue Marble color map + night lights + clouds.
-   All textures are loaded from public NASA imagery servers.
+   Photorealistic Earth — loads LOCAL textures from /public/textures/
+   Custom GLSL shaders for day/night blending, clouds, atmosphere.
    ------------------------------------------------------------------ */
-
-const TEXTURES = {
-  color:
-    "https://eoimages.gsfc.nasa.gov/images/imagerecords/74000/74393/world.topo.200412.3x5400x2700.jpg",
-  night:
-    "https://eoimages.gsfc.nasa.gov/images/imagerecords/144000/144898/BlackMarble_2016_01deg.jpg",
-  clouds:
-    "https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/cloud_combined_2048.jpg",
-};
-
-/* --- Custom GLSL shaders for day/night blending --- */
 
 const earthVert = /* glsl */ `
   varying vec2 vUv;
@@ -37,44 +25,56 @@ const earthVert = /* glsl */ `
 const earthFrag = /* glsl */ `
   uniform sampler2D dayTexture;
   uniform sampler2D nightTexture;
+  uniform sampler2D cloudsTexture;
   uniform vec3 sunDirection;
+  uniform float cloudDrift;
   varying vec2 vUv;
   varying vec3 vNormal;
   varying vec3 vPosition;
   void main() {
+    vec3 N = normalize(vNormal);
+    vec3 L = normalize(sunDirection);
+    vec3 V = normalize(-vPosition);
+    float NdotL = dot(N, L);
+
     vec3 day = texture2D(dayTexture, vUv).rgb;
     vec3 night = texture2D(nightTexture, vUv).rgb;
-    float cosA = dot(vNormal, sunDirection);
-    float dayF = smoothstep(-0.15, 0.25, cosA);
-    // Specular glint on oceans
-    float spec = pow(max(dot(reflect(-sunDirection, vNormal), normalize(-vPosition)), 0.0), 24.0) * 0.35;
-    vec3 color = mix(night * 2.5, day + spec, dayF);
-    // Rim light
-    float rim = 1.0 - max(dot(vNormal, normalize(-vPosition)), 0.0);
-    color += vec3(0.35, 0.55, 1.0) * pow(rim, 3.0) * 0.35 * dayF;
+
+    vec2 cUv = vUv;
+    cUv.x = fract(cUv.x + cloudDrift);
+    float cloud = texture2D(cloudsTexture, cUv).r;
+
+    // Day side: diffuse + clouds
+    float diffuse = max(NdotL, 0.0);
+    vec3 dayCol = day * (diffuse * 1.1 + 0.03);
+    dayCol = mix(dayCol, vec3(0.92, 0.93, 0.96) * (diffuse * 1.1 + 0.03), cloud * 0.55);
+
+    // Specular on oceans
+    vec3 H = normalize(L + V);
+    float spec = pow(max(dot(N, H), 0.0), 96.0);
+    float lum = dot(day, vec3(0.299, 0.587, 0.114));
+    float waterMask = smoothstep(0.12, 0.30, 1.0 - lum) * (1.0 - cloud * 0.9);
+    dayCol += vec3(1.0, 0.97, 0.93) * spec * waterMask * 0.55 * diffuse;
+
+    // Night: city lights
+    vec3 nightCol = night * 1.8 * (1.0 - cloud * 0.35);
+
+    // Day/night blend at terminator
+    float dayMix = smoothstep(-0.12, 0.20, NdotL);
+    vec3 color = mix(nightCol, dayCol, dayMix);
+
+    // Atmosphere rim
+    float rim = 1.0 - max(dot(N, V), 0.0);
+    float rimPow = pow(rim, 3.8);
+    float sunRim = smoothstep(-0.4, 0.6, NdotL);
+    vec3 atmos = mix(vec3(0.03, 0.06, 0.18), vec3(0.35, 0.62, 1.0), sunRim);
+    color += atmos * rimPow * 0.6;
+
+    // Warm terminator glow
+    float terminator = exp(-NdotL * NdotL / 0.010);
+    color += vec3(0.65, 0.22, 0.04) * terminator * rim * 0.55;
+
     gl_FragColor = vec4(color, 1.0);
-  }
-`;
-
-const cloudVert = /* glsl */ `
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  void main() {
-    vUv = uv;
-    vNormal = normalize(normalMatrix * normal);
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const cloudFrag = /* glsl */ `
-  uniform sampler2D cloudTexture;
-  uniform vec3 sunDirection;
-  varying vec2 vUv;
-  varying vec3 vNormal;
-  void main() {
-    float c = texture2D(cloudTexture, vUv).r;
-    float dayF = smoothstep(-0.1, 0.3, dot(vNormal, sunDirection));
-    gl_FragColor = vec4(vec3(1.0), c * 0.50 * dayF);
   }
 `;
 
@@ -93,109 +93,88 @@ const atmoFrag = /* glsl */ `
   varying vec3 vNormal;
   varying vec3 vPosition;
   void main() {
-    float cosA = dot(vNormal, sunDirection);
-    float dayF = smoothstep(-0.5, 0.5, cosA);
-    float rim = 1.0 - max(dot(vNormal, normalize(-vPosition)), 0.0);
-    rim = pow(rim, 4.0);
-    vec3 dayAtmo = vec3(0.3, 0.6, 1.0);
-    vec3 sunsetAtmo = vec3(1.0, 0.4, 0.15);
-    float term = pow(1.0 - abs(cosA), 3.0) * 2.0;
-    vec3 ac = mix(dayAtmo, sunsetAtmo, clamp(term, 0.0, 1.0));
-    gl_FragColor = vec4(ac, rim * (0.6 * dayF + 0.08));
+    vec3 N = normalize(vNormal);
+    vec3 V = normalize(-vPosition);
+    vec3 L = normalize(sunDirection);
+    float NdotL = dot(N, L);
+    float rim = 1.0 - max(dot(N, V), 0.0);
+    rim = pow(rim, 2.8);
+    float sunFace = smoothstep(-0.3, 0.5, NdotL);
+    vec3 col = mix(vec3(0.015, 0.04, 0.12), vec3(0.28, 0.56, 1.0), sunFace);
+    float alpha = rim * mix(0.12, 0.7, sunFace);
+    gl_FragColor = vec4(col, alpha);
   }
 `;
 
-/* --- Inner component that loads textures --- */
-
 function EarthInner({ radius }: { radius: number }) {
+  const driftRef = useRef(0);
   const earthRef = useRef<THREE.Mesh>(null);
-  const cloudsRef = useRef<THREE.Mesh>(null);
 
-  const [dayTex, nightTex, cloudTex] = useLoader(TextureLoader, [
-    TEXTURES.color,
-    TEXTURES.night,
-    TEXTURES.clouds,
+  const [dayMap, nightMap, cloudsMap] = useTexture([
+    "/textures/earth_day.jpg",
+    "/textures/earth_night.jpg",
+    "/textures/earth_clouds.png",
   ]);
 
-  useMemo(() => {
-    [dayTex, nightTex, cloudTex].forEach((t) => {
-      if (t) {
-        t.colorSpace = THREE.SRGBColorSpace;
-        t.anisotropy = 16;
-        t.minFilter = THREE.LinearMipMapLinearFilter;
-        t.magFilter = THREE.LinearFilter;
-        t.generateMipmaps = true;
-      }
-    });
-  }, [dayTex, nightTex, cloudTex]);
+  // Anisotropic filtering
+  [dayMap, nightMap, cloudsMap].forEach((t) => {
+    t.anisotropy = 16;
+    t.minFilter = THREE.LinearMipmapLinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.generateMipmaps = true;
+  });
+  cloudsMap.wrapS = THREE.RepeatWrapping;
 
   const sunDir = useMemo(() => new THREE.Vector3(5, 3, 5).normalize(), []);
 
-  const earthUniforms = useMemo(
-    () => ({
-      dayTexture: { value: dayTex },
-      nightTexture: { value: nightTex },
-      sunDirection: { value: sunDir },
-    }),
-    [dayTex, nightTex, sunDir]
+  const earthMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        uniforms: {
+          dayTexture: { value: dayMap },
+          nightTexture: { value: nightMap },
+          cloudsTexture: { value: cloudsMap },
+          sunDirection: { value: sunDir },
+          cloudDrift: { value: 0 },
+        },
+        vertexShader: earthVert,
+        fragmentShader: earthFrag,
+      }),
+    [dayMap, nightMap, cloudsMap, sunDir]
   );
 
-  const cloudUniforms = useMemo(
-    () => ({
-      cloudTexture: { value: cloudTex },
-      sunDirection: { value: sunDir },
-    }),
-    [cloudTex, sunDir]
-  );
-
-  const atmoUniforms = useMemo(
-    () => ({ sunDirection: { value: sunDir } }),
+  const atmosMat = useMemo(
+    () =>
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        uniforms: { sunDirection: { value: sunDir } },
+        vertexShader: atmoVert,
+        fragmentShader: atmoFrag,
+      }),
     [sunDir]
   );
 
   useFrame((_, dt) => {
-    const speed = 0.04;
-    if (earthRef.current) earthRef.current.rotation.y += dt * speed;
-    if (cloudsRef.current) cloudsRef.current.rotation.y += dt * speed * 1.15;
+    driftRef.current += dt;
+    earthMat.uniforms.cloudDrift.value = driftRef.current * 0.000035;
+    if (earthRef.current) earthRef.current.rotation.y += dt * 0.04;
   });
 
   return (
     <group>
       <mesh ref={earthRef}>
         <sphereGeometry args={[radius, 128, 128]} />
-        <shaderMaterial
-          vertexShader={earthVert}
-          fragmentShader={earthFrag}
-          uniforms={earthUniforms}
-        />
+        <primitive attach="material" object={earthMat} />
       </mesh>
-      <mesh ref={cloudsRef}>
-        <sphereGeometry args={[radius * 1.008, 128, 128]} />
-        <shaderMaterial
-          vertexShader={cloudVert}
-          fragmentShader={cloudFrag}
-          uniforms={cloudUniforms}
-          transparent
-          depthWrite={false}
-        />
-      </mesh>
-      <mesh>
+      <mesh renderOrder={1}>
         <sphereGeometry args={[radius * 1.04, 128, 128]} />
-        <shaderMaterial
-          vertexShader={atmoVert}
-          fragmentShader={atmoFrag}
-          uniforms={atmoUniforms}
-          transparent
-          depthWrite={false}
-          side={THREE.BackSide}
-          blending={THREE.AdditiveBlending}
-        />
+        <primitive attach="material" object={atmosMat} />
       </mesh>
     </group>
   );
 }
 
-/* --- Fallback while textures load --- */
 function EarthFallback({ radius }: { radius: number }) {
   const ref = useRef<THREE.Mesh>(null);
   useFrame((_, dt) => {
@@ -222,7 +201,6 @@ function EarthFallback({ radius }: { radius: number }) {
   );
 }
 
-/* --- Public export wraps in Suspense --- */
 export default function Earth({ radius = 1.55 }: { radius?: number }) {
   return (
     <Suspense fallback={<EarthFallback radius={radius} />}>
