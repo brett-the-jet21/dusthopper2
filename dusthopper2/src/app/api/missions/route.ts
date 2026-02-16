@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { fetchUpcomingLaunches, fetchRecentLaunches } from "@/lib/launches";
 
 export const runtime = "nodejs";
-export const revalidate = 120;
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {

@@ -23,41 +23,52 @@ export type Launch = {
   padLongitude: number | null;
 };
 
-const LL2_BASE = "https://ll.thespacedevs.com/2.2.0";
+// Use the dev endpoint — less restrictive rate limits for free access
+const LL2_BASE = "https://lldev.thespacedevs.com/2.2.0";
 
 export async function fetchUpcomingLaunches(): Promise<Launch[]> {
-  const url = `${LL2_BASE}/launch/upcoming/?limit=20&mode=detailed`;
+  try {
+    const url = `${LL2_BASE}/launch/upcoming/?limit=15&mode=normal`;
+    const res = await fetch(url, {
+      next: { revalidate: 600 }, // 10 min cache — stay under rate limits
+      headers: { Accept: "application/json" },
+    });
 
-  const res = await fetch(url, {
-    next: { revalidate: 120 },
-    headers: { Accept: "application/json" },
-  });
+    if (!res.ok) {
+      console.error(`LL2 upcoming fetch failed: ${res.status}`);
+      return [];
+    }
 
-  if (!res.ok) {
-    console.error(`LL2 fetch failed: ${res.status} ${res.statusText}`);
+    const json = await res.json();
+    const results: any[] = json?.results ?? [];
+    if (results.length === 0) return [];
+
+    return results.map(mapLaunch);
+  } catch (err) {
+    console.error("fetchUpcomingLaunches error:", err);
     return [];
   }
-
-  const json = await res.json();
-  const results: any[] = json?.results ?? [];
-
-  return results.map(mapLaunch);
 }
 
 export async function fetchRecentLaunches(): Promise<Launch[]> {
-  const url = `${LL2_BASE}/launch/previous/?limit=5&mode=detailed`;
+  try {
+    const url = `${LL2_BASE}/launch/previous/?limit=5&mode=normal`;
+    const res = await fetch(url, {
+      next: { revalidate: 900 }, // 15 min cache
+      headers: { Accept: "application/json" },
+    });
 
-  const res = await fetch(url, {
-    next: { revalidate: 300 },
-    headers: { Accept: "application/json" },
-  });
+    if (!res.ok) return [];
 
-  if (!res.ok) return [];
+    const json = await res.json();
+    const results: any[] = json?.results ?? [];
+    if (results.length === 0) return [];
 
-  const json = await res.json();
-  const results: any[] = json?.results ?? [];
-
-  return results.map(mapLaunch);
+    return results.map(mapLaunch);
+  } catch (err) {
+    console.error("fetchRecentLaunches error:", err);
+    return [];
+  }
 }
 
 function mapLaunch(l: any): Launch {
@@ -71,7 +82,10 @@ function mapLaunch(l: any): Launch {
     provider: l.launch_service_provider?.name ?? "Unknown",
     agency: l.launch_service_provider?.name ?? null,
     agencyAbbrev: l.launch_service_provider?.abbrev ?? null,
-    vehicle: l.rocket?.configuration?.full_name ?? l.rocket?.configuration?.name ?? null,
+    vehicle:
+      l.rocket?.configuration?.full_name ??
+      l.rocket?.configuration?.name ??
+      null,
     pad: l.pad?.name ?? null,
     location: l.pad?.location?.name ?? null,
     country: l.pad?.location?.country_code ?? null,

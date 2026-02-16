@@ -24,13 +24,13 @@ export type Launch = {
   padLongitude: number | null;
 };
 
-const LL2_BASE = "https://ll.thespacedevs.com/2.2.0";
+const LL2_BASE = "https://lldev.thespacedevs.com/2.2.0";
 
 export async function fetchUpcomingLaunches(): Promise<Launch[]> {
-  const url = `${LL2_BASE}/launch/upcoming/?limit=20&mode=detailed`;
+  const url = `${LL2_BASE}/launch/upcoming/?limit=15&mode=normal`;
 
   const res = await fetch(url, {
-    next: { revalidate: 120 },
+    next: { revalidate: 600 },
     headers: { Accept: "application/json" },
   });
 
@@ -84,10 +84,10 @@ function extractWebcast(l: any): string | null {
 }
 
 export async function fetchRecentLaunches(): Promise<Launch[]> {
-  const url = `${LL2_BASE}/launch/previous/?limit=5&mode=detailed`;
+  const url = `${LL2_BASE}/launch/previous/?limit=5&mode=normal`;
 
   const res = await fetch(url, {
-    next: { revalidate: 300 },
+    next: { revalidate: 900 },
     headers: { Accept: "application/json" },
   });
 
