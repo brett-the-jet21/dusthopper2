@@ -63,7 +63,7 @@ const earthFrag = /* glsl */ `
     float dayMix = smoothstep(-0.12, 0.20, NdotL);
     vec3 color = mix(nightCol, dayCol, dayMix);
 
-    // Atmosphere rim
+    // Atmosphere rim — NEON TRACER glow
     float rim = 1.0 - max(dot(N, V), 0.0);
     float rimPow = pow(rim, 3.8);
     float sunRim = smoothstep(-0.4, 0.6, NdotL);
@@ -116,7 +116,6 @@ function EarthInner({ radius }: { radius: number }) {
     "/textures/earth_clouds.png",
   ]);
 
-  // Anisotropic filtering
   [dayMap, nightMap, cloudsMap].forEach((t) => {
     t.anisotropy = 16;
     t.minFilter = THREE.LinearMipmapLinearFilter;
@@ -158,7 +157,7 @@ function EarthInner({ radius }: { radius: number }) {
   useFrame((_, dt) => {
     driftRef.current += dt;
     earthMat.uniforms.cloudDrift.value = driftRef.current * 0.000035;
-    if (earthRef.current) earthRef.current.rotation.y += dt * 0.04;
+    if (earthRef.current) earthRef.current.rotation.y += dt * 0.02;
   });
 
   return (
@@ -167,8 +166,9 @@ function EarthInner({ radius }: { radius: number }) {
         <sphereGeometry args={[radius, 128, 128]} />
         <primitive attach="material" object={earthMat} />
       </mesh>
+      {/* Atmosphere shell — neon glow */}
       <mesh renderOrder={1}>
-        <sphereGeometry args={[radius * 1.04, 128, 128]} />
+        <sphereGeometry args={[radius * 1.025, 128, 128]} />
         <primitive attach="material" object={atmosMat} />
       </mesh>
     </group>
@@ -178,7 +178,7 @@ function EarthInner({ radius }: { radius: number }) {
 function EarthFallback({ radius }: { radius: number }) {
   const ref = useRef<THREE.Mesh>(null);
   useFrame((_, dt) => {
-    if (ref.current) ref.current.rotation.y += dt * 0.04;
+    if (ref.current) ref.current.rotation.y += dt * 0.02;
   });
   return (
     <group>
@@ -187,7 +187,7 @@ function EarthFallback({ radius }: { radius: number }) {
         <meshStandardMaterial color="#0b3d91" roughness={0.7} metalness={0.1} />
       </mesh>
       <mesh>
-        <sphereGeometry args={[radius * 1.04, 64, 64]} />
+        <sphereGeometry args={[radius * 1.025, 64, 64]} />
         <meshBasicMaterial
           color="#5ab0ff"
           transparent
@@ -201,7 +201,7 @@ function EarthFallback({ radius }: { radius: number }) {
   );
 }
 
-export default function Earth({ radius = 1.55 }: { radius?: number }) {
+export default function Earth({ radius = 6 }: { radius?: number }) {
   return (
     <Suspense fallback={<EarthFallback radius={radius} />}>
       <EarthInner radius={radius} />
