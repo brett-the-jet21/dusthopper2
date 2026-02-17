@@ -84,15 +84,15 @@ export default function MissionControlScene({ isLaunching = false }: Props) {
         saturation={0.2}
       />
 
-      <ambientLight intensity={0.12} />
+      <ambientLight intensity={0.08} />
       <directionalLight
-        position={[10, 6, 10]}
-        intensity={2.5}
+        position={[15, 2, 0]}
+        intensity={2.8}
         color="#fff5e6"
       />
       <directionalLight
-        position={[-5, -3, -5]}
-        intensity={0.3}
+        position={[-8, -2, -3]}
+        intensity={0.15}
         color="#4477aa"
       />
 
