@@ -1,11 +1,13 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useMemo, useCallback } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
 import Earth from "./Earth";
+import Moon from "./Moon";
 import Rocket from "./Rocket";
+import type { LaunchTelemetry } from "./Rocket";
 
 /* ------------------------------------------------------------------
    Neon orbit tracers — glowing rings at different inclinations
@@ -28,7 +30,6 @@ function OrbitTracers() {
     <group ref={groupRef}>
       {orbits.map((o, i) => (
         <group key={i}>
-          {/* Core line */}
           <mesh rotation={[Math.PI / 2 + o.tilt, 0, o.rot]}>
             <torusGeometry args={[o.radius, 0.012, 16, 200]} />
             <meshBasicMaterial
@@ -39,7 +40,6 @@ function OrbitTracers() {
               depthWrite={false}
             />
           </mesh>
-          {/* Outer glow */}
           <mesh rotation={[Math.PI / 2 + o.tilt, 0, o.rot]}>
             <torusGeometry args={[o.radius, 0.06, 16, 200]} />
             <meshBasicMaterial
@@ -57,16 +57,22 @@ function OrbitTracers() {
 }
 
 /* ------------------------------------------------------------------
-   Main scene — stable rendering, no state-driven re-renders
+   Main scene
    ------------------------------------------------------------------ */
 type Props = {
   isLaunching?: boolean;
+  onTelemetry?: (t: LaunchTelemetry) => void;
 };
 
-export default function MissionControlScene({ isLaunching = false }: Props) {
+export default function MissionControlScene({
+  isLaunching = false,
+  onTelemetry,
+}: Props) {
+  const sunDir = useMemo(() => new THREE.Vector3(1, 0, 0), []);
+
   return (
     <Canvas
-      camera={{ position: [0, 3, 18], fov: 45 }}
+      camera={{ position: [0, 3, 18], fov: 45, near: 0.1, far: 2000 }}
       style={{ width: "100%", height: "100%" }}
       gl={{
         antialias: true,
@@ -77,26 +83,20 @@ export default function MissionControlScene({ isLaunching = false }: Props) {
       frameloop="always"
     >
       <Stars
-        radius={300}
-        depth={100}
-        count={3000}
+        radius={800}
+        depth={200}
+        count={5000}
         factor={5}
         saturation={0.2}
       />
 
       <ambientLight intensity={0.08} />
-      <directionalLight
-        position={[15, 2, 0]}
-        intensity={2.8}
-        color="#fff5e6"
-      />
-      <directionalLight
-        position={[-8, -2, -3]}
-        intensity={0.15}
-        color="#4477aa"
-      />
+      <directionalLight position={[15, 2, 0]} intensity={2.8} color="#fff5e6" />
+      <directionalLight position={[-8, -2, -3]} intensity={0.15} color="#4477aa" />
 
       <Earth radius={6} />
+
+      <Moon sunDirection={sunDir} />
 
       <OrbitTracers />
 
@@ -104,6 +104,7 @@ export default function MissionControlScene({ isLaunching = false }: Props) {
         isLaunching={isLaunching}
         padPosition={[0, 6.08, 0]}
         scale={0.025}
+        onTelemetry={onTelemetry}
       />
 
       <OrbitControls
@@ -113,7 +114,7 @@ export default function MissionControlScene({ isLaunching = false }: Props) {
         zoomSpeed={0.6}
         rotateSpeed={0.4}
         minDistance={6.8}
-        maxDistance={45}
+        maxDistance={600}
         autoRotate
         autoRotateSpeed={0.08}
         enableDamping
