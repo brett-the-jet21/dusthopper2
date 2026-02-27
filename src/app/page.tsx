@@ -38,6 +38,7 @@ export default function Home() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [telemetry, setTelemetry] = useState<LaunchTelemetry | null>(null);
   const [trackTarget, setTrackTarget] = useState<TrackTarget>("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const telemetryRef = useRef<LaunchTelemetry | null>(null);
 
   // Throttle telemetry updates
@@ -140,23 +141,51 @@ export default function Home() {
         isLaunching={isLaunching}
       />
 
-      {/* ===== DESKTOP: sidebar (sm+) ===== */}
-      <div className="hidden sm:block absolute left-0 top-20 bottom-0 w-[420px] z-20 overflow-y-auto px-6 pb-8">
-        {selectedLaunch ? (
-          <MissionDetail
-            launch={selectedLaunch}
-            onBack={() => setSelectedId(null)}
-            onLaunch={triggerLaunch}
-          />
-        ) : (
-          <MissionList
-            upcoming={upcoming}
-            recent={recent}
-            data={data}
-            onSelect={(id) => setSelectedId(id)}
-            onLaunch={triggerLaunch}
-          />
-        )}
+      {/* ===== DESKTOP: collapsible sidebar (sm+) ===== */}
+      <div
+        className={`hidden sm:flex absolute left-0 top-20 bottom-0 z-20 transition-all duration-300 ease-out ${
+          sidebarOpen ? "w-[420px]" : "w-0"
+        }`}
+      >
+        {/* Sidebar content */}
+        <div
+          className={`w-[420px] h-full overflow-y-auto px-6 pb-8 transition-opacity duration-200 ${
+            sidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none"
+          }`}
+        >
+          {selectedLaunch ? (
+            <MissionDetail
+              launch={selectedLaunch}
+              onBack={() => setSelectedId(null)}
+              onLaunch={triggerLaunch}
+            />
+          ) : (
+            <MissionList
+              upcoming={upcoming}
+              recent={recent}
+              data={data}
+              onSelect={(id) => setSelectedId(id)}
+              onLaunch={triggerLaunch}
+            />
+          )}
+        </div>
+
+        {/* Collapse / expand toggle */}
+        <button
+          onClick={() => setSidebarOpen(!sidebarOpen)}
+          className="shrink-0 self-start mt-2 w-7 h-14 flex items-center justify-center rounded-r-lg bg-black/60 backdrop-blur-xl border border-l-0 border-white/10 hover:bg-white/10 transition-colors"
+          title={sidebarOpen ? "Collapse panel" : "Expand panel"}
+        >
+          <svg
+            className={`w-4 h-4 text-white/50 transition-transform duration-300 ${sidebarOpen ? "" : "rotate-180"}`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
       </div>
 
       {/* ===== MOBILE: bottom drawer (<sm) ===== */}
@@ -249,7 +278,7 @@ function TargetSelector({
       {allTargets.map((t) => (
         <button
           key={t.id}
-          onClick={() => onChange(t.id)}
+          onClick={() => onChange(current === t.id && t.id !== "overview" ? "overview" : t.id)}
           className={`relative flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-[10px] sm:text-xs font-semibold transition-all duration-200 backdrop-blur-xl border min-h-[36px] sm:min-h-[40px] ${
             current === t.id
               ? "bg-white/15 border-white/30 text-white scale-105"
