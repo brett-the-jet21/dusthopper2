@@ -30,6 +30,7 @@ type RocketProps = {
   padPosition?: [number, number, number];
   scale?: number;
   onTelemetry?: (t: LaunchTelemetry) => void;
+  positionRef?: React.MutableRefObject<THREE.Vector3>;
 };
 
 // Map 30s animation time → approximate real Falcon 9 values
@@ -78,6 +79,7 @@ export default function Rocket({
   padPosition = [0, 6.08, 0],
   scale = 0.025,
   onTelemetry,
+  positionRef,
 }: RocketProps) {
   // Whole vehicle (pre-separation), then acts as S1 post-sep
   const s1Ref = useRef<THREE.Group>(null);
@@ -146,6 +148,9 @@ export default function Rocket({
       s2Ref.current.position.set(...pos);
       s2Ref.current.rotation.z = -tilt;
 
+      // Report position (full stack tracks S2 position before separation)
+      if (positionRef) positionRef.current.set(...pos);
+
       // S1 engines firing
       const showS1 = t > 0 && t < 8;
       if (s1ExhaustRef.current) s1ExhaustRef.current.visible = showS1;
@@ -173,6 +178,15 @@ export default function Rocket({
         padPosition[2],
       );
       s2Ref.current.rotation.z = -s2Tilt;
+
+      // Report S2 position (the active payload stage)
+      if (positionRef) {
+        positionRef.current.set(
+          padPosition[0] + s2Tilt * 0.8,
+          padPosition[1] + s2Altitude,
+          padPosition[2],
+        );
+      }
 
       const showS2Exhaust = sepElapsed < 11.5; // SECO at T+20
       if (s2ExhaustRef.current) s2ExhaustRef.current.visible = showS2Exhaust;

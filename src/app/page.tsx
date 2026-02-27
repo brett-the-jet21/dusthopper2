@@ -63,7 +63,8 @@ export default function Home() {
         case "2": setTrackTarget("earth"); break;
         case "3": setTrackTarget("moon"); break;
         case "4": setTrackTarget("sun"); break;
-        case "5": if (isLaunching) setTrackTarget("rocket"); break;
+        case "5": setTrackTarget("iss"); break;
+        case "6": if (isLaunching) setTrackTarget("rocket"); break;
         case "escape": setTrackTarget("overview"); setSelectedId(null); setDrawerOpen(false); break;
       }
     };
@@ -258,6 +259,7 @@ const targets: { id: TrackTarget; label: string; icon: string; key: string; colo
   { id: "earth", label: "Earth", icon: "🌍", key: "2", color: "#44aaff" },
   { id: "moon", label: "Moon", icon: "🌙", key: "3", color: "#aaaacc" },
   { id: "sun", label: "Sun", icon: "☀️", key: "4", color: "#ffaa33" },
+  { id: "iss", label: "ISS", icon: "🛰️", key: "5", color: "#66ffaa" },
 ];
 
 function TargetSelector({
@@ -270,7 +272,7 @@ function TargetSelector({
   isLaunching: boolean;
 }) {
   const allTargets = isLaunching
-    ? [...targets, { id: "rocket" as TrackTarget, label: "Rocket", icon: "🚀", key: "5", color: "#ff6644" }]
+    ? [...targets, { id: "rocket" as TrackTarget, label: "Rocket", icon: "🚀", key: "6", color: "#ff6644" }]
     : targets;
 
   return (
