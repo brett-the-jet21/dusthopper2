@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import Countdown from "@/components/Countdown";
 import type { Launch } from "@/lib/launches";
 import type { LaunchTelemetry } from "@/components/Rocket";
+import type { TrackTarget } from "@/components/MissionControlScene";
 
 const MissionControlScene = dynamic(
   () => import("@/components/MissionControlScene"),
@@ -27,8 +28,7 @@ type ApiData = {
 };
 
 /* ==================================================================
-   Single-page Mission Control — mobile-first bottom drawer on small
-   screens, sidebar on desktop. Launch telemetry overlay when active.
+   DustHopper Mission Control — the coolest live space mission site
    ================================================================== */
 
 export default function Home() {
@@ -37,9 +37,10 @@ export default function Home() {
   const [isLaunching, setIsLaunching] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [telemetry, setTelemetry] = useState<LaunchTelemetry | null>(null);
+  const [trackTarget, setTrackTarget] = useState<TrackTarget>("overview");
   const telemetryRef = useRef<LaunchTelemetry | null>(null);
 
-  // Throttle telemetry updates to avoid re-renders every frame
+  // Throttle telemetry updates
   const onTelemetry = useCallback((t: LaunchTelemetry) => {
     telemetryRef.current = t;
   }, []);
@@ -52,15 +53,30 @@ export default function Home() {
     return () => clearInterval(id);
   }, [isLaunching]);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      switch (e.key.toLowerCase()) {
+        case "1": setTrackTarget("overview"); break;
+        case "2": setTrackTarget("earth"); break;
+        case "3": setTrackTarget("moon"); break;
+        case "4": setTrackTarget("sun"); break;
+        case "5": if (isLaunching) setTrackTarget("rocket"); break;
+        case "escape": setTrackTarget("overview"); setSelectedId(null); setDrawerOpen(false); break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isLaunching]);
+
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch("/api/missions", { cache: "no-store" });
       if (!res.ok) return;
       const json: ApiData = await res.json();
       setData(json);
-    } catch {
-      /* silent */
-    }
+    } catch { /* silent */ }
   }, []);
 
   useEffect(() => {
@@ -71,12 +87,14 @@ export default function Home() {
 
   const selectedLaunch = useMemo(() => {
     if (!selectedId || !data) return null;
-    const all = [...data.upcoming, ...data.recent];
-    return all.find((l) => l.id === selectedId) ?? null;
+    return [...data.upcoming, ...data.recent].find((l) => l.id === selectedId) ?? null;
   }, [selectedId, data]);
 
   const triggerLaunch = useCallback(() => {
-    if (!isLaunching) setIsLaunching(true);
+    if (!isLaunching) {
+      setIsLaunching(true);
+      setTrackTarget("rocket");
+    }
   }, [isLaunching]);
 
   const upcoming = data?.upcoming ?? [];
@@ -85,11 +103,13 @@ export default function Home() {
 
   return (
     <div className="h-screen w-screen bg-black text-white overflow-hidden relative">
-      {/* ===== 3D Scene (full background) ===== */}
+      {/* 3D Scene */}
       <div className="absolute inset-0 z-0">
         <MissionControlScene
           isLaunching={isLaunching}
           onTelemetry={onTelemetry}
+          trackTarget={trackTarget}
+          onTargetChange={setTrackTarget}
         />
       </div>
 
@@ -97,7 +117,7 @@ export default function Home() {
       <div className="absolute inset-x-0 top-0 h-24 sm:h-32 bg-gradient-to-b from-black/80 to-transparent z-10 pointer-events-none" />
       <div className="absolute inset-x-0 bottom-0 h-32 sm:h-48 bg-gradient-to-t from-black/90 to-transparent z-10 pointer-events-none" />
 
-      {/* ===== Header ===== */}
+      {/* Header */}
       <header className="relative z-20 p-3 sm:p-6">
         <div className="flex items-center gap-2 sm:gap-3">
           <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-green-400 animate-pulse" />
@@ -112,6 +132,13 @@ export default function Home() {
           </p>
         )}
       </header>
+
+      {/* ===== Target selector — floating nav ===== */}
+      <TargetSelector
+        current={trackTarget}
+        onChange={setTrackTarget}
+        isLaunching={isLaunching}
+      />
 
       {/* ===== DESKTOP: sidebar (sm+) ===== */}
       <div className="hidden sm:block absolute left-0 top-20 bottom-0 w-[420px] z-20 overflow-y-auto px-6 pb-8">
@@ -138,16 +165,13 @@ export default function Home() {
           drawerOpen ? "translate-y-0" : "translate-y-[calc(100%-5rem)]"
         }`}
       >
-        {/* Backdrop */}
         {drawerOpen && (
           <div
             className="fixed inset-0 bg-black/40 -z-10"
             onClick={() => setDrawerOpen(false)}
           />
         )}
-
         <div className="bg-black/90 backdrop-blur-2xl border-t border-white/10 rounded-t-2xl max-h-[80vh] flex flex-col">
-          {/* Drag handle + compact bar */}
           <button
             onClick={() => setDrawerOpen(!drawerOpen)}
             className="w-full flex flex-col items-center pt-2 pb-3 px-4"
@@ -156,12 +180,8 @@ export default function Home() {
             {!drawerOpen && nextLaunch && (
               <div className="w-full flex items-center justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm font-semibold truncate">
-                    {nextLaunch.name}
-                  </div>
-                  <div className="text-[10px] text-white/40 mt-0.5">
-                    {nextLaunch.provider}
-                  </div>
+                  <div className="text-sm font-semibold truncate">{nextLaunch.name}</div>
+                  <div className="text-[10px] text-white/40 mt-0.5">{nextLaunch.provider}</div>
                 </div>
                 <div className="ml-3 shrink-0">
                   <Countdown targetDate={nextLaunch.net} onLaunch={triggerLaunch} />
@@ -172,8 +192,6 @@ export default function Home() {
               <div className="text-xs text-white/30 animate-pulse">Loading missions...</div>
             )}
           </button>
-
-          {/* Scrollable content */}
           {drawerOpen && (
             <div className="overflow-y-auto flex-1 px-4 pb-6">
               {selectedLaunch ? (
@@ -187,9 +205,7 @@ export default function Home() {
                   upcoming={upcoming}
                   recent={recent}
                   data={data}
-                  onSelect={(id) => {
-                    setSelectedId(id);
-                  }}
+                  onSelect={(id) => setSelectedId(id)}
                   onLaunch={triggerLaunch}
                 />
               )}
@@ -198,24 +214,68 @@ export default function Home() {
         </div>
       </div>
 
-      {/* ===== Launch telemetry overlay ===== */}
+      {/* Launch telemetry overlay */}
       {isLaunching && telemetry && <TelemetryOverlay t={telemetry} />}
-
-      {/* ===== Launch status indicator ===== */}
       {isLaunching && !telemetry && <LaunchIndicator />}
     </div>
   );
 }
 
 /* ------------------------------------------------------------------
-   Mission list (shared between desktop sidebar + mobile drawer)
+   Target selector — floating pill nav for object tracking
+   ------------------------------------------------------------------ */
+const targets: { id: TrackTarget; label: string; icon: string; key: string; color: string }[] = [
+  { id: "overview", label: "Overview", icon: "🌌", key: "1", color: "#ffffff" },
+  { id: "earth", label: "Earth", icon: "🌍", key: "2", color: "#44aaff" },
+  { id: "moon", label: "Moon", icon: "🌙", key: "3", color: "#aaaacc" },
+  { id: "sun", label: "Sun", icon: "☀️", key: "4", color: "#ffaa33" },
+];
+
+function TargetSelector({
+  current,
+  onChange,
+  isLaunching,
+}: {
+  current: TrackTarget;
+  onChange: (t: TrackTarget) => void;
+  isLaunching: boolean;
+}) {
+  const allTargets = isLaunching
+    ? [...targets, { id: "rocket" as TrackTarget, label: "Rocket", icon: "🚀", key: "5", color: "#ff6644" }]
+    : targets;
+
+  return (
+    <div className="absolute top-3 sm:top-6 right-3 sm:right-6 z-30 flex gap-1 sm:gap-1.5">
+      {allTargets.map((t) => (
+        <button
+          key={t.id}
+          onClick={() => onChange(t.id)}
+          className={`relative flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-full text-[10px] sm:text-xs font-semibold transition-all duration-200 backdrop-blur-xl border min-h-[36px] sm:min-h-[40px] ${
+            current === t.id
+              ? "bg-white/15 border-white/30 text-white scale-105"
+              : "bg-black/40 border-white/8 text-white/50 hover:text-white/80 hover:border-white/15 hover:bg-white/8"
+          }`}
+          title={`${t.label} (${t.key})`}
+        >
+          <span className="text-sm sm:text-base">{t.icon}</span>
+          <span className="hidden sm:inline">{t.label}</span>
+          {current === t.id && (
+            <div
+              className="absolute inset-0 rounded-full opacity-20 animate-pulse"
+              style={{ boxShadow: `0 0 12px ${t.color}, inset 0 0 8px ${t.color}40` }}
+            />
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   Mission list
    ------------------------------------------------------------------ */
 function MissionList({
-  upcoming,
-  recent,
-  data,
-  onSelect,
-  onLaunch,
+  upcoming, recent, data, onSelect, onLaunch,
 }: {
   upcoming: Launch[];
   recent: Launch[];
@@ -226,11 +286,7 @@ function MissionList({
   return (
     <>
       {upcoming.length > 0 && (
-        <FeaturedCard
-          launch={upcoming[0]}
-          onSelect={() => onSelect(upcoming[0].id)}
-          onLaunch={onLaunch}
-        />
+        <FeaturedCard launch={upcoming[0]} onSelect={() => onSelect(upcoming[0].id)} onLaunch={onLaunch} />
       )}
       {upcoming.length > 1 && (
         <section className="mb-6">
@@ -270,9 +326,7 @@ function MissionList({
    Featured card
    ------------------------------------------------------------------ */
 function FeaturedCard({
-  launch,
-  onSelect,
-  onLaunch,
+  launch, onSelect, onLaunch,
 }: {
   launch: Launch;
   onSelect: () => void;
@@ -316,9 +370,7 @@ function FeaturedCard({
    Compact mission card
    ------------------------------------------------------------------ */
 function MissionCard({
-  launch,
-  onSelect,
-  dimmed = false,
+  launch, onSelect, dimmed = false,
 }: {
   launch: Launch;
   onSelect: () => void;
@@ -361,9 +413,7 @@ function MissionCard({
    Mission detail
    ------------------------------------------------------------------ */
 function MissionDetail({
-  launch,
-  onBack,
-  onLaunch,
+  launch, onBack, onLaunch,
 }: {
   launch: Launch;
   onBack: () => void;
@@ -385,19 +435,14 @@ function MissionDetail({
 
       <div className="rounded-2xl border border-white/10 bg-black/60 backdrop-blur-xl p-4 sm:p-6">
         <div className="flex items-center justify-between mb-2 sm:mb-3">
-          <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">
-            Mission Details
-          </span>
+          <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">Mission Details</span>
           <StatusBadge status={launch.status} />
         </div>
         <h2 className="text-xl sm:text-2xl font-bold leading-tight">{launch.name}</h2>
         <div className="mt-2 sm:mt-3 text-sm text-white/50">{launch.provider}</div>
-
         {isUpcoming ? (
           <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-white/10">
-            <div className="text-[10px] uppercase tracking-[0.2em] text-white/30 mb-2">
-              Time to Launch
-            </div>
+            <div className="text-[10px] uppercase tracking-[0.2em] text-white/30 mb-2">Time to Launch</div>
             <Countdown targetDate={launch.net} onLaunch={onLaunch} />
           </div>
         ) : (
@@ -408,9 +453,7 @@ function MissionDetail({
       </div>
 
       <div className="rounded-2xl border border-white/10 bg-black/50 backdrop-blur-xl p-4 sm:p-5">
-        <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">
-          Vehicle & Pad
-        </h3>
+        <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">Vehicle & Pad</h3>
         <div className="grid grid-cols-2 gap-2 sm:gap-3">
           <InfoItem label="Vehicle" value={launch.vehicle} />
           <InfoItem label="Orbit" value={launch.orbitalDesignation} />
@@ -423,12 +466,8 @@ function MissionDetail({
 
       {launch.missionDescription && (
         <div className="rounded-2xl border border-white/10 bg-black/50 backdrop-blur-xl p-4 sm:p-5">
-          <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">
-            Mission Overview
-          </h3>
-          <p className="text-sm text-white/60 leading-relaxed">
-            {launch.missionDescription}
-          </p>
+          <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">Mission Overview</h3>
+          <p className="text-sm text-white/60 leading-relaxed">{launch.missionDescription}</p>
           {launch.missionType && (
             <div className="mt-3 text-xs text-white/30">Type: {launch.missionType}</div>
           )}
@@ -437,9 +476,7 @@ function MissionDetail({
 
       {launch.webcastUrl && (
         <div className="rounded-2xl border border-white/10 bg-black/50 backdrop-blur-xl p-4 sm:p-5">
-          <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">
-            Watch Live
-          </h3>
+          <h3 className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3">Watch Live</h3>
           <a
             href={launch.webcastUrl}
             target="_blank"
@@ -458,7 +495,7 @@ function MissionDetail({
 }
 
 /* ------------------------------------------------------------------
-   Telemetry overlay — shows during active launch
+   Telemetry overlay
    ------------------------------------------------------------------ */
 function TelemetryOverlay({ t }: { t: LaunchTelemetry }) {
   const metMin = Math.floor(t.met / 60);
@@ -466,20 +503,16 @@ function TelemetryOverlay({ t }: { t: LaunchTelemetry }) {
   const metStr = `T+${String(metMin).padStart(2, "0")}:${String(metSec).padStart(2, "0")}`;
 
   return (
-    <div className="absolute top-14 sm:top-20 right-3 sm:right-6 z-20 rounded-xl border border-cyan-500/20 bg-black/70 backdrop-blur-xl p-3 sm:p-4 font-mono text-xs sm:text-sm min-w-[160px] sm:min-w-[200px]">
+    <div className="absolute top-14 sm:top-20 right-3 sm:right-6 z-20 rounded-xl border border-cyan-500/20 bg-black/70 backdrop-blur-xl p-3 sm:p-4 font-mono text-xs sm:text-sm min-w-[160px] sm:min-w-[200px] mt-12 sm:mt-14">
       <div className="text-cyan-400 font-bold text-sm sm:text-base mb-2 sm:mb-3">{metStr}</div>
-
       <div className="space-y-1.5 sm:space-y-2">
         <TelemetryRow label="ALT" value={`${t.altitude.toLocaleString()} km`} />
         <TelemetryRow label="VEL" value={`${t.speed.toLocaleString()} km/h`} />
       </div>
-
       <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-white/10">
         <div className="text-[10px] uppercase tracking-wider text-white/30">Phase</div>
         <div className="text-white/80 font-semibold mt-0.5">{t.phase}</div>
       </div>
-
-      {/* Stage separation indicator */}
       {t.phase === "Stage Separation" && (
         <div className="mt-2 py-1 px-2 rounded bg-orange-500/20 text-orange-300 text-center text-[10px] uppercase tracking-wider font-bold animate-pulse">
           Stage Sep

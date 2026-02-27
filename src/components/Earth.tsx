@@ -235,7 +235,7 @@ const atmoFrag = /* glsl */ `
 
 /* ======== COMPONENTS ======== */
 
-function EarthInner({ radius }: { radius: number }) {
+function EarthInner({ radius, onClick }: { radius: number; onClick?: () => void }) {
   const earthRef = useRef<THREE.Mesh>(null);
   const outerGroupRef = useRef<THREE.Group>(null);
   const driftRef = useRef(0);
@@ -323,7 +323,7 @@ function EarthInner({ radius }: { radius: number }) {
       {/* Seasonal orbit rotation → axial tilt → UTC spin */}
       <group ref={outerGroupRef}>
         <group rotation={[0, 0, AXIAL_TILT]}>
-          <mesh ref={earthRef}>
+          <mesh ref={earthRef} onClick={onClick}>
             <sphereGeometry args={[radius, 192, 192]} />
             <primitive attach="material" object={earthMat} />
           </mesh>
@@ -361,10 +361,10 @@ function EarthFallback({ radius }: { radius: number }) {
   );
 }
 
-export default function Earth({ radius = 6 }: { radius?: number }) {
+export default function Earth({ radius = 6, onClick }: { radius?: number; onClick?: () => void }) {
   return (
     <Suspense fallback={<EarthFallback radius={radius} />}>
-      <EarthInner radius={radius} />
+      <EarthInner radius={radius} onClick={onClick} />
     </Suspense>
   );
 }
