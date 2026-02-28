@@ -1,14 +1,5 @@
-import { OrbitSceneEnhanced } from "@/components/orbit/OrbitSceneEnhanced";
+import { redirect } from "next/navigation";
 
-type ParamsObj = { id: string };
-type Props = { params: ParamsObj | Promise<ParamsObj> };
-
-export default async function MissionViewPage({ params }: Props) {
-  const { id } = await params;
-  
-  return (
-    <main className="w-full h-screen">
-      <OrbitSceneEnhanced missionId={id} />
-    </main>
-  );
+export default function MissionRedirect() {
+  redirect("/");
 }
