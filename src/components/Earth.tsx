@@ -64,32 +64,12 @@ const earthFrag = /* glsl */ `
     vec3 nightRaw = texture2D(nightTexture, vUv).rgb;
     float specMask = texture2D(specTexture, vUv).r; // 1 = water, 0 = land
 
-    /* --- Clouds: heavy blur to hide low-res artifacts --- */
+    /* --- Clouds --- */
     vec2 cUv = vUv;
     cUv.x = fract(cUv.x + cloudDrift);
-    // 9-tap gaussian blur to smooth the 1024x512 indexed-color cloud map
-    float texel = 1.0 / 1024.0;
-    float cloud = 0.0;
-    cloud += texture2D(cloudsTexture, cUv).r * 0.25;
-    cloud += texture2D(cloudsTexture, cUv + vec2(texel, 0.0)).r * 0.125;
-    cloud += texture2D(cloudsTexture, cUv - vec2(texel, 0.0)).r * 0.125;
-    cloud += texture2D(cloudsTexture, cUv + vec2(0.0, texel)).r * 0.125;
-    cloud += texture2D(cloudsTexture, cUv - vec2(0.0, texel)).r * 0.125;
-    cloud += texture2D(cloudsTexture, cUv + vec2(texel, texel)).r * 0.0625;
-    cloud += texture2D(cloudsTexture, cUv - vec2(texel, texel)).r * 0.0625;
-    cloud += texture2D(cloudsTexture, cUv + vec2(texel, -texel)).r * 0.0625;
-    cloud += texture2D(cloudsTexture, cUv + vec2(-texel, texel)).r * 0.0625;
-    // Second pass blur (wider kernel)
-    float cloud2 = 0.0;
-    float texel2 = 3.0 / 1024.0;
-    cloud2 += texture2D(cloudsTexture, cUv + vec2(texel2, 0.0)).r;
-    cloud2 += texture2D(cloudsTexture, cUv - vec2(texel2, 0.0)).r;
-    cloud2 += texture2D(cloudsTexture, cUv + vec2(0.0, texel2)).r;
-    cloud2 += texture2D(cloudsTexture, cUv - vec2(0.0, texel2)).r;
-    cloud2 *= 0.25;
-    cloud = mix(cloud, cloud2, 0.3);
-    // Soften edges with power curve — reduces harsh transitions
-    cloud = smoothstep(0.15, 0.7, cloud);
+    float cloud = texture2D(cloudsTexture, cUv).r;
+    // Gentle contrast curve for natural cloud edges
+    cloud = smoothstep(0.1, 0.65, cloud);
 
     /* --- Simple, clean diffuse lighting --- */
     float diffuse = max(NdotL, 0.0);
@@ -191,7 +171,7 @@ function EarthInner({ radius, onClick }: { radius: number; onClick?: () => void 
   const [dayMap, nightMap, cloudsMap, specMap] = useTexture([
     "/textures/earth_day.jpg",
     "/textures/earth_night.jpg",
-    "/textures/earth_clouds.png",
+    "/textures/earth_clouds.jpg",
     "/textures/earth_specular.jpg",
   ]);
 
@@ -204,8 +184,7 @@ function EarthInner({ radius, onClick }: { radius: number; onClick?: () => void 
     t.generateMipmaps = true;
   });
 
-  // Cloud map is a grayscale mask from a low-res indexed PNG
-  // Use LinearColorSpace (don't gamma-correct it) and LINEAR filtering
+  // Cloud map is a grayscale JPEG — treat as linear data
   cloudsMap.colorSpace = THREE.LinearSRGBColorSpace;
   cloudsMap.minFilter = THREE.LinearMipmapLinearFilter;
   cloudsMap.magFilter = THREE.LinearFilter;
