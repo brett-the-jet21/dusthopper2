@@ -12,7 +12,7 @@ import ISS from "./ISS";
 import type { LaunchTelemetry } from "./Rocket";
 
 /* ===================================================================
-   Track targets — the camera can lock on to any of these in real time
+   Track targets — the camera can lock on to any of these
    =================================================================== */
 export type TrackTarget =
   | "overview"
@@ -25,123 +25,101 @@ export type TrackTarget =
 // Targets that move every frame and need continuous tracking
 const MOVING_TARGETS = new Set<TrackTarget>(["iss", "rocket", "moon"]);
 
+/* Camera distances and offsets per target */
+function getTargetConfig(target: TrackTarget) {
+  switch (target) {
+    case "earth":
+      return { distance: 16, offset: new THREE.Vector3(0, 3, 16) };
+    case "moon":
+      return { distance: 8, offset: new THREE.Vector3(0, 3, 8) };
+    case "sun":
+      return { distance: 60, offset: new THREE.Vector3(-50, 15, 30) };
+    case "iss":
+      return { distance: 2.5, offset: new THREE.Vector3(0, 0.5, 2) };
+    case "rocket":
+      return { distance: 3, offset: new THREE.Vector3(2, 1.5, 3) };
+    default:
+      return { distance: 35, offset: new THREE.Vector3(0, 12, 35) };
+  }
+}
+
 /* ------------------------------------------------------------------
-   Camera controller — continuous real-time lock-on for moving objects
+   Camera controller — smooth transitions + orbit around locked target
    ------------------------------------------------------------------ */
 function CameraController({
   target,
   moonPosRef,
   rocketPosRef,
   issPosRef,
-  isLaunching,
 }: {
   target: TrackTarget;
   moonPosRef: React.MutableRefObject<THREE.Vector3>;
   rocketPosRef: React.MutableRefObject<THREE.Vector3>;
   issPosRef: React.MutableRefObject<THREE.Vector3>;
-  isLaunching: boolean;
 }) {
   const { camera } = useThree();
   const controlsRef = useRef<any>(null);
   const isTransitioning = useRef(false);
-  const isLockedOn = useRef(false);
   const prevTarget = useRef<TrackTarget>("overview");
-  const camOffset = useRef(new THREE.Vector3(0, 3, 10));
+  const transitionProgress = useRef(0);
 
-  useFrame(() => {
+  const getTargetPosition = useCallback(
+    (t: TrackTarget): THREE.Vector3 => {
+      switch (t) {
+        case "iss":
+          return issPosRef.current.clone();
+        case "rocket":
+          return rocketPosRef.current.clone();
+        case "moon":
+          return moonPosRef.current.clone();
+        case "sun":
+          return SUN_POSITION.clone();
+        case "earth":
+          return new THREE.Vector3(0, 0, 0);
+        default:
+          return new THREE.Vector3(0, 0, 0);
+      }
+    },
+    [moonPosRef, rocketPosRef, issPosRef],
+  );
+
+  useFrame((_, dt) => {
     if (!controlsRef.current) return;
 
     // Detect target change
     if (target !== prevTarget.current) {
       isTransitioning.current = true;
-      isLockedOn.current = MOVING_TARGETS.has(target);
+      transitionProgress.current = 0;
       prevTarget.current = target;
-
-      // Compute initial camera offset direction for moving targets
-      if (isLockedOn.current) {
-        const objPos = getObjectPosition(target);
-        if (objPos) {
-          const dir = objPos.clone().normalize();
-          if (target === "iss") {
-            camOffset.current
-              .copy(dir)
-              .multiplyScalar(-2)
-              .add(new THREE.Vector3(0, 0.5, 0));
-          } else if (target === "rocket") {
-            camOffset.current.set(2, 1.5, 3);
-          } else if (target === "moon") {
-            camOffset.current
-              .copy(dir)
-              .multiplyScalar(-8)
-              .add(new THREE.Vector3(0, 3, 0));
-          }
-        }
-      }
     }
 
-    function getObjectPosition(t: TrackTarget): THREE.Vector3 | null {
-      switch (t) {
-        case "iss":
-          return issPosRef.current;
-        case "rocket":
-          return rocketPosRef.current;
-        case "moon":
-          return moonPosRef.current;
-        default:
-          return null;
-      }
-    }
+    const objPos = getTargetPosition(target);
+    const config = getTargetConfig(target);
 
-    // Compute desired positions
-    let desiredLookAt = new THREE.Vector3(0, 0, 0);
-    let desiredCamPos = new THREE.Vector3(0, 12, 35);
+    if (isTransitioning.current) {
+      transitionProgress.current = Math.min(
+        transitionProgress.current + dt * 1.5,
+        1,
+      );
+      const t = 1 - Math.pow(1 - transitionProgress.current, 3); // ease-out cubic
 
-    switch (target) {
-      case "overview":
-        desiredLookAt.set(0, 0, 0);
-        desiredCamPos.set(0, 12, 35);
-        break;
-      case "earth":
-        desiredLookAt.set(0, 0, 0);
-        desiredCamPos.set(0, 3, 16);
-        break;
-      case "moon": {
-        const mp = moonPosRef.current;
-        desiredLookAt.copy(mp);
-        desiredCamPos.copy(mp).add(camOffset.current);
-        break;
-      }
-      case "sun":
-        desiredLookAt.copy(SUN_POSITION);
-        desiredCamPos.set(SUN_POSITION.x - 60, 15, 40);
-        break;
-      case "rocket": {
-        const rp = rocketPosRef.current;
-        desiredLookAt.copy(rp);
-        desiredCamPos.copy(rp).add(camOffset.current);
-        break;
-      }
-      case "iss": {
-        const ip = issPosRef.current;
-        desiredLookAt.copy(ip);
-        desiredCamPos.copy(ip).add(camOffset.current);
-        break;
-      }
-    }
+      // Smoothly move orbit target to the object position
+      controlsRef.current.target.lerp(objPos, t * 0.12);
 
-    // Lerp speed: faster for moving targets to keep up
-    const speed = isLockedOn.current ? 0.06 : 0.025;
+      // For the initial transition, move camera to a good viewing angle
+      const desiredCamPos = objPos.clone().add(config.offset);
+      camera.position.lerp(desiredCamPos, t * 0.08);
 
-    const dist = camera.position.distanceTo(desiredCamPos);
-
-    if (isTransitioning.current || isLockedOn.current) {
-      camera.position.lerp(desiredCamPos, speed);
-      controlsRef.current.target.lerp(desiredLookAt, speed);
-
-      // Only stop transitioning for static targets once close enough
-      if (isTransitioning.current && !isLockedOn.current && dist < 0.1) {
+      if (transitionProgress.current >= 1) {
         isTransitioning.current = false;
       }
+    } else if (MOVING_TARGETS.has(target)) {
+      // Continuously update orbit center to follow moving objects
+      controlsRef.current.target.lerp(objPos, 0.08);
+      // Keep camera at a consistent distance while following
+      const camDir = camera.position.clone().sub(controlsRef.current.target).normalize();
+      const desiredPos = objPos.clone().add(camDir.multiplyScalar(config.distance));
+      camera.position.lerp(desiredPos, 0.06);
     }
 
     controlsRef.current.update();
@@ -150,13 +128,14 @@ function CameraController({
   return (
     <OrbitControls
       ref={controlsRef}
-      enablePan={false}
-      enableZoom
-      enableRotate
+      enablePan={true}
+      enableZoom={true}
+      enableRotate={true}
       zoomSpeed={0.8}
       rotateSpeed={0.5}
-      minDistance={0.3}
-      maxDistance={500}
+      panSpeed={0.4}
+      minDistance={0.1}
+      maxDistance={800}
       enableDamping
       dampingFactor={0.06}
     />
@@ -188,7 +167,7 @@ function OrbitTracers() {
             <meshBasicMaterial
               color={o.color}
               transparent
-              opacity={0.5}
+              opacity={0.4}
               blending={THREE.AdditiveBlending}
               depthWrite={false}
             />
@@ -198,7 +177,7 @@ function OrbitTracers() {
             <meshBasicMaterial
               color={o.color}
               transparent
-              opacity={0.12}
+              opacity={0.08}
               blending={THREE.AdditiveBlending}
               depthWrite={false}
             />
@@ -210,11 +189,11 @@ function OrbitTracers() {
 }
 
 /* ------------------------------------------------------------------
-   Satellite constellation — animated dots orbiting Earth
+   Satellite constellation
    ------------------------------------------------------------------ */
 function Satellites() {
   const ref = useRef<THREE.InstancedMesh>(null);
-  const count = 60;
+  const count = 80;
   const dummy = useMemo(() => new THREE.Object3D(), []);
 
   const sats = useMemo(() => {
@@ -254,7 +233,7 @@ function Satellites() {
       <meshBasicMaterial
         color="#88ffff"
         transparent
-        opacity={0.8}
+        opacity={0.7}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
       />
@@ -263,16 +242,16 @@ function Satellites() {
 }
 
 /* ------------------------------------------------------------------
-   Shooting stars — occasional streaks across the sky
+   Shooting stars
    ------------------------------------------------------------------ */
 function ShootingStars() {
   const ref = useRef<THREE.Group>(null);
   const stars = useMemo(() => {
     const arr = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
       arr.push({
         delay: Math.random() * 30,
-        duration: 0.6 + Math.random() * 1.0,
+        duration: 0.5 + Math.random() * 0.8,
         start: new THREE.Vector3(
           (Math.random() - 0.5) * 400,
           80 + Math.random() * 200,
@@ -330,16 +309,16 @@ function ShootingStars() {
 }
 
 /* ------------------------------------------------------------------
-   Moon orbit path — faint ring showing lunar orbit
+   Moon orbit path
    ------------------------------------------------------------------ */
 function MoonOrbitPath() {
   return (
     <mesh rotation={[Math.PI / 2, 0, 0]}>
-      <torusGeometry args={[80, 0.04, 8, 256]} />
+      <torusGeometry args={[50, 0.03, 8, 256]} />
       <meshBasicMaterial
         color="#445566"
         transparent
-        opacity={0.15}
+        opacity={0.12}
         blending={THREE.AdditiveBlending}
         depthWrite={false}
       />
@@ -348,7 +327,7 @@ function MoonOrbitPath() {
 }
 
 /* ------------------------------------------------------------------
-   Object labels — floating text indicators
+   Object labels
    ------------------------------------------------------------------ */
 function ObjectLabel({
   position,
@@ -466,7 +445,7 @@ export default function MissionControlScene({
   onTargetChange,
 }: Props) {
   const sunDir = useMemo(() => new THREE.Vector3(1, 0, 0), []);
-  const moonPosRef = useRef(new THREE.Vector3(80, 0, 0));
+  const moonPosRef = useRef(new THREE.Vector3(50, 0, 0));
   const rocketPosRef = useRef(new THREE.Vector3(0, 6.08, 0));
   const issPosRef = useRef(new THREE.Vector3(0, 6.4, 0));
 
@@ -497,26 +476,26 @@ export default function MissionControlScene({
       style={{ width: "100%", height: "100%" }}
       gl={{
         antialias: true,
-        toneMapping: 4,
-        toneMappingExposure: 1.1,
+        toneMapping: THREE.ACESFilmicToneMapping,
+        toneMappingExposure: 1.0,
         powerPreference: "high-performance",
       }}
       frameloop="always"
     >
       <Stars
-        radius={1200}
-        depth={300}
-        count={8000}
-        factor={5}
-        saturation={0.3}
+        radius={1500}
+        depth={400}
+        count={12000}
+        factor={4.5}
+        saturation={0.2}
       />
 
-      <ambientLight intensity={0.06} />
-      <directionalLight position={[15, 2, 0]} intensity={2.8} color="#fff5e6" />
+      <ambientLight intensity={0.04} />
+      <directionalLight position={[15, 2, 0]} intensity={2.5} color="#fff5e6" />
       <directionalLight
         position={[-8, -2, -3]}
-        intensity={0.12}
-        color="#4477aa"
+        intensity={0.08}
+        color="#334466"
       />
 
       <Earth radius={6} onClick={handleClickEarth} />
@@ -550,7 +529,7 @@ export default function MissionControlScene({
         color="#ffaa33"
       />
 
-      {/* Tracking labels — follow moving objects */}
+      {/* Tracking labels */}
       <TrackingLabel
         posRef={moonPosRef}
         label="Moon"
@@ -588,7 +567,6 @@ export default function MissionControlScene({
         moonPosRef={moonPosRef}
         rocketPosRef={rocketPosRef}
         issPosRef={issPosRef}
-        isLaunching={isLaunching}
       />
     </Canvas>
   );
