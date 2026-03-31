@@ -15,8 +15,8 @@ import * as THREE from "three";
    • Visible glow halo for distance identification
    ------------------------------------------------------------------ */
 
-const MOON_RADIUS = 1.64;
-const MOON_DISTANCE = 50;
+const MOON_RADIUS = 0.55;
+const MOON_DISTANCE = 16.7;
 const MOON_INCLINATION = 5.14 * (Math.PI / 180);
 
 const moonVert = /* glsl */ `

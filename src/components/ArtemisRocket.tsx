@@ -14,7 +14,7 @@ import * as THREE from "three";
    same approach as ISS which is also upscaled ~10000×).
    =================================================================== */
 
-const EARTH_SCENE_R = 6; // Three.js scene units
+const EARTH_SCENE_R = 2; // Three.js scene units
 const EARTH_KM = 6371;
 const ORBIT_ALT_KM = 370; // km above Earth surface
 const ORBIT_R = EARTH_SCENE_R + (ORBIT_ALT_KM / EARTH_KM) * EARTH_SCENE_R;
@@ -106,10 +106,9 @@ export default function ArtemisRocket({ playing = true, positionRef, onClick }: 
   const CM_H = 3.5; // Orion Crew Module
   const LAS_H = 7.0; // Launch Abort System
 
-  // Scale: 1 model-unit = 1 metre.  At 0.008 the SLS core is 0.067 scene-units
-  // wide and 0.52 tall — clearly rocket-shaped when tracked at camera
-  // distance 1.5, matches ISS upscale philosophy (ISS is also ~10 000× bigger).
-  const SCALE = 0.008;
+  // Scale: 1 model-unit = 1 metre.  At 0.0027 the SLS core is ~0.023 scene-units
+  // wide and ~0.26 tall relative to Earth radius 2 — proportionally correct.
+  const SCALE = 0.0027;
 
   return (
     <group ref={groupRef} onClick={onClick}>
