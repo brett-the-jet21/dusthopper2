@@ -19,26 +19,43 @@ function getDayOfYear(d: Date): number {
   return Math.floor((d.getTime() - start.getTime()) / 86400000);
 }
 
-/* KSC: 28.5729°N, 80.6490°W — placed in Earth's local (pre-rotation) space */
+/* KSC: 28.5729°N, 80.6490°W */
 const KSC_LAT = 28.5729 * (Math.PI / 180);
 const KSC_LON = -80.649 * (Math.PI / 180);
 
+/** Standalone KSCMarker — placed inside the axial-tilt group (same level as
+ *  the earth mesh) and computes its own UTC rotation each frame so it tracks
+ *  exactly with the Earth surface without being a child of the earth mesh. */
 function KSCMarker({ radius }: { radius: number }) {
   const meshRef = useRef<THREE.Mesh>(null);
-  // Place slightly above surface
-  const r = radius * 1.005;
-  const x = r * Math.cos(KSC_LAT) * Math.sin(KSC_LON);
-  const y = r * Math.sin(KSC_LAT);
-  const z = r * Math.cos(KSC_LAT) * Math.cos(KSC_LON);
+  const r = radius * 1.008;
+  const baseLat = KSC_LAT;
+  // Base position at lon=0 in the axial-tilt group frame (before UTC rotation)
+  const baseX = r * Math.cos(baseLat) * Math.sin(KSC_LON);
+  const baseY = r * Math.sin(baseLat);
+  const baseZ = r * Math.cos(baseLat) * Math.cos(KSC_LON);
 
   useFrame((state) => {
     if (!meshRef.current) return;
-    const s = 1 + Math.sin(state.clock.elapsedTime * 2.5) * 0.35;
-    meshRef.current.scale.setScalar(s);
+    const now = new Date();
+    const hoursUTC = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+    const doy = getDayOfYear(now);
+    const seasonAngle = ((doy - 172) / 365.25) * Math.PI * 2;
+    const utcRot = ((hoursUTC - 12) / 24) * Math.PI * 2 - seasonAngle;
+    const cosU = Math.cos(utcRot);
+    const sinU = Math.sin(utcRot);
+    // Rotate base position by utcRot around Y axis
+    meshRef.current.position.set(
+      baseX * cosU + baseZ * sinU,
+      baseY,
+      -baseX * sinU + baseZ * cosU,
+    );
+    // Pulse
+    meshRef.current.scale.setScalar(1 + Math.sin(state.clock.elapsedTime * 2.5) * 0.35);
   });
 
   return (
-    <mesh ref={meshRef} position={[x, y, z]}>
+    <mesh ref={meshRef}>
       <sphereGeometry args={[0.022, 8, 8]} />
       <meshBasicMaterial color="#FF6B00" />
     </mesh>
@@ -100,8 +117,10 @@ function EarthInner({ radius, onClick, showKSC }: { radius: number; onClick?: ()
               specular={specularColor}
               shininess={25}
             />
-            {showKSC && <KSCMarker radius={radius} />}
           </mesh>
+
+          {/* KSC launch site marker — sibling of earth mesh, computes own UTC rotation */}
+          {showKSC && <KSCMarker radius={radius} />}
 
           {/* Layer 2: Cloud shell */}
           <mesh ref={cloudsRef}>

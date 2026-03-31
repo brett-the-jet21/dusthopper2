@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useCallback } from "react";
+import { useRef, useMemo, useCallback, Component, ReactNode } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
@@ -9,6 +9,30 @@ import Moon from "./Moon";
 import Sun, { SUN_POSITION } from "./Sun";
 import { useMissionStore } from "@/lib/store/missionStore";
 import { twoline2satrec, propagate, gstime } from "satellite.js";
+
+/* ===================================================================
+   Canvas error boundary — prevents 3D crashes from killing the page
+   =================================================================== */
+class SceneErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ width: "100%", height: "100%", background: "#000" }} />
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /* ===================================================================
    Types
@@ -479,14 +503,16 @@ export default function MissionControlScene({
   onTargetChange,
 }: Props) {
   return (
-    <Canvas
-      camera={{ position: [0, 1.5, 6.5], fov: 40, near: 0.001, far: 10000 }}
-      style={{ width: "100%", height: "100%", background: "#000000" }}
-      gl={{ antialias: true }}
-      frameloop="always"
-    >
-      <color attach="background" args={["#000000"]} />
-      <SceneContent trackTarget={trackTarget} onTargetChange={onTargetChange} />
-    </Canvas>
+    <SceneErrorBoundary>
+      <Canvas
+        camera={{ position: [0, 1.5, 6.5], fov: 40, near: 0.001, far: 10000 }}
+        style={{ width: "100%", height: "100%", background: "#000000" }}
+        gl={{ antialias: true }}
+        frameloop="always"
+      >
+        <color attach="background" args={["#000000"]} />
+        <SceneContent trackTarget={trackTarget} onTargetChange={onTargetChange} />
+      </Canvas>
+    </SceneErrorBoundary>
   );
 }
