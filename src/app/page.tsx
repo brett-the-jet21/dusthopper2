@@ -6,6 +6,10 @@ import Countdown from "@/components/Countdown";
 import type { Launch } from "@/lib/launches";
 import type { LaunchTelemetry } from "@/components/Rocket";
 import type { TrackTarget } from "@/components/MissionControlScene";
+import { useMissionStore } from "@/lib/store/missionStore";
+import { MissionSelector } from "@/components/hud/MissionSelector";
+import { TelemetryPanel } from "@/components/hud/TelemetryPanel";
+import { CommandCenterHUD } from "@/components/hud/CommandCenterHUD";
 
 const MissionControlScene = dynamic(
   () => import("@/components/MissionControlScene"),
@@ -28,7 +32,7 @@ type ApiData = {
 };
 
 /* ==================================================================
-   DustHopper Mission Control — the coolest live space mission site
+   DustHopper Mission Control — Artemis focal point
    ================================================================== */
 
 export default function Home() {
@@ -40,6 +44,10 @@ export default function Home() {
   const [trackTarget, setTrackTarget] = useState<TrackTarget>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const telemetryRef = useRef<LaunchTelemetry | null>(null);
+
+  // Mission store — reads trackedMissionId for branding
+  const { trackedMissionId } = useMissionStore();
+  const isArtemisMode = trackedMissionId === 'artemis';
 
   // Throttle telemetry updates
   const onTelemetry = useCallback((t: LaunchTelemetry) => {
@@ -103,6 +111,10 @@ export default function Home() {
   const recent = data?.recent ?? [];
   const nextLaunch = upcoming[0] ?? null;
 
+  // Artemis accent colors
+  const accentColor = isArtemisMode ? "#FF6B00" : "#44aaff";
+  const headerTitle = isArtemisMode ? "ARTEMIS MISSION CONTROL" : "DustHopper Mission Control";
+
   return (
     <div className="h-screen w-screen bg-black text-white overflow-hidden relative">
       {/* 3D Scene */}
@@ -119,13 +131,36 @@ export default function Home() {
       <div className="absolute inset-x-0 top-0 h-24 sm:h-32 bg-gradient-to-b from-black/80 to-transparent z-10 pointer-events-none" />
       <div className="absolute inset-x-0 bottom-0 h-32 sm:h-48 bg-gradient-to-t from-black/90 to-transparent z-10 pointer-events-none" />
 
+      {/* Artemis orange glow overlay when active */}
+      {isArtemisMode && (
+        <div
+          className="absolute inset-0 z-0 pointer-events-none"
+          style={{
+            background: 'radial-gradient(ellipse at 60% 40%, rgba(255,107,0,0.04) 0%, transparent 60%)',
+          }}
+        />
+      )}
+
       {/* Header */}
       <header className="relative z-20 p-3 sm:p-6">
         <div className="flex items-center gap-2 sm:gap-3">
-          <div className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-green-400 animate-pulse" />
-          <h1 className="text-base sm:text-2xl font-bold tracking-tight">
-            DustHopper Mission Control
+          <div
+            className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full animate-pulse"
+            style={{ backgroundColor: isArtemisMode ? '#FF6B00' : '#4ade80' }}
+          />
+          <h1
+            className="text-base sm:text-2xl font-bold tracking-tight transition-colors duration-500"
+            style={{ color: isArtemisMode ? '#FF6B00' : '#ffffff' }}
+          >
+            {headerTitle}
           </h1>
+          {isArtemisMode && (
+            <span className="hidden sm:inline text-xs px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider"
+              style={{ background: 'rgba(255,107,0,0.15)', color: '#FF6B00', border: '1px solid rgba(255,107,0,0.3)' }}
+            >
+              NASA
+            </span>
+          )}
         </div>
         {data && (
           <p className="text-[10px] sm:text-xs text-white/40 mt-0.5 sm:mt-1 ml-5 sm:ml-6">
@@ -135,11 +170,18 @@ export default function Home() {
         )}
       </header>
 
+      {/* ===== NASA Command Center HUD (top center) ===== */}
+      <CommandCenterHUD />
+
+      {/* ===== Telemetry Panel (top right) ===== */}
+      <TelemetryPanel />
+
       {/* ===== Target selector — floating nav ===== */}
       <TargetSelector
         current={trackTarget}
         onChange={setTrackTarget}
         isLaunching={isLaunching}
+        accentColor={accentColor}
       />
 
       {/* ===== DESKTOP: collapsible sidebar (sm+) ===== */}
@@ -148,9 +190,8 @@ export default function Home() {
           sidebarOpen ? "w-[420px]" : "w-0"
         }`}
       >
-        {/* Sidebar content */}
         <div
-          className={`w-[420px] h-full overflow-y-auto px-6 pb-8 transition-opacity duration-200 ${
+          className={`w-[420px] h-full overflow-y-auto px-6 pb-32 transition-opacity duration-200 ${
             sidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none"
           }`}
         >
@@ -189,9 +230,9 @@ export default function Home() {
         </button>
       </div>
 
-      {/* ===== MOBILE: bottom drawer (<sm) ===== */}
+      {/* ===== MOBILE: bottom drawer (<sm) — offset above mission selector ===== */}
       <div
-        className={`sm:hidden fixed inset-x-0 bottom-0 z-30 transition-transform duration-300 ease-out ${
+        className={`sm:hidden fixed inset-x-0 bottom-28 z-30 transition-transform duration-300 ease-out ${
           drawerOpen ? "translate-y-0" : "translate-y-[calc(100%-5rem)]"
         }`}
       >
@@ -201,7 +242,7 @@ export default function Home() {
             onClick={() => setDrawerOpen(false)}
           />
         )}
-        <div className="bg-black/90 backdrop-blur-2xl border-t border-white/10 rounded-t-2xl max-h-[80vh] flex flex-col">
+        <div className="bg-black/90 backdrop-blur-2xl border-t border-white/10 rounded-t-2xl max-h-[65vh] flex flex-col">
           <button
             onClick={() => setDrawerOpen(!drawerOpen)}
             className="w-full flex flex-col items-center pt-2 pb-3 px-4"
@@ -244,6 +285,9 @@ export default function Home() {
         </div>
       </div>
 
+      {/* ===== Mission Selector (bottom center) ===== */}
+      <MissionSelector />
+
       {/* Launch telemetry overlay */}
       {isLaunching && telemetry && <TelemetryOverlay t={telemetry} />}
       {isLaunching && !telemetry && <LaunchIndicator />}
@@ -254,29 +298,31 @@ export default function Home() {
 /* ------------------------------------------------------------------
    Target selector — floating pill nav for object tracking
    ------------------------------------------------------------------ */
-const targets: { id: TrackTarget; label: string; icon: string; key: string; color: string }[] = [
-  { id: "overview", label: "Overview", icon: "🌌", key: "1", color: "#ffffff" },
-  { id: "earth", label: "Earth", icon: "🌍", key: "2", color: "#44aaff" },
-  { id: "moon", label: "Moon", icon: "🌙", key: "3", color: "#aaaacc" },
-  { id: "sun", label: "Sun", icon: "☀️", key: "4", color: "#ffaa33" },
-  { id: "iss", label: "ISS", icon: "🛰️", key: "5", color: "#66ffaa" },
+const targets: { id: TrackTarget; label: string; icon: string; key: string }[] = [
+  { id: "overview", label: "Overview", icon: "🌌", key: "1" },
+  { id: "earth", label: "Earth", icon: "🌍", key: "2" },
+  { id: "moon", label: "Moon", icon: "🌙", key: "3" },
+  { id: "sun", label: "Sun", icon: "☀️", key: "4" },
+  { id: "iss", label: "ISS", icon: "🛰️", key: "5" },
 ];
 
 function TargetSelector({
   current,
   onChange,
   isLaunching,
+  accentColor,
 }: {
   current: TrackTarget;
   onChange: (t: TrackTarget) => void;
   isLaunching: boolean;
+  accentColor: string;
 }) {
   const allTargets = isLaunching
-    ? [...targets, { id: "rocket" as TrackTarget, label: "Rocket", icon: "🚀", key: "6", color: "#ff6644" }]
+    ? [...targets, { id: "rocket" as TrackTarget, label: "Rocket", icon: "🚀", key: "6" }]
     : targets;
 
   return (
-    <div className="absolute top-3 sm:top-6 right-3 sm:right-6 z-30 flex gap-1 sm:gap-1.5">
+    <div className="absolute top-14 sm:top-16 right-3 sm:right-6 z-30 flex gap-1 sm:gap-1.5">
       {allTargets.map((t) => (
         <button
           key={t.id}
@@ -293,7 +339,7 @@ function TargetSelector({
           {current === t.id && (
             <div
               className="absolute inset-0 rounded-full opacity-20 animate-pulse"
-              style={{ boxShadow: `0 0 12px ${t.color}, inset 0 0 8px ${t.color}40` }}
+              style={{ boxShadow: `0 0 12px ${accentColor}, inset 0 0 8px ${accentColor}40` }}
             />
           )}
         </button>
@@ -526,7 +572,7 @@ function MissionDetail({
 }
 
 /* ------------------------------------------------------------------
-   Telemetry overlay
+   Telemetry overlay (Falcon 9 launch)
    ------------------------------------------------------------------ */
 function TelemetryOverlay({ t }: { t: LaunchTelemetry }) {
   const metMin = Math.floor(t.met / 60);
