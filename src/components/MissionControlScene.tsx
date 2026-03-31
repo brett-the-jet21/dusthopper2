@@ -7,10 +7,8 @@ import * as THREE from "three";
 import Earth from "./Earth";
 import Moon from "./Moon";
 import Sun, { SUN_POSITION } from "./Sun";
-import Rocket from "./Rocket";
 import ISS from "./ISS";
 import ArtemisRocket from "./ArtemisRocket";
-import type { LaunchTelemetry } from "./Rocket";
 import { useMissionStore } from "@/lib/store/missionStore";
 
 /* ===================================================================
@@ -21,13 +19,12 @@ export type TrackTarget =
   | "earth"
   | "moon"
   | "sun"
-  | "rocket"
   | "iss"
   | "artemis"
   | "starship"
   | "starlink";
 
-const MOVING_TARGETS = new Set<TrackTarget>(["iss", "rocket", "moon", "artemis", "starship", "starlink"]);
+const MOVING_TARGETS = new Set<TrackTarget>(["iss", "moon", "artemis", "starship", "starlink"]);
 
 /* Camera distances and offsets per target */
 function getTargetConfig(target: TrackTarget) {
@@ -40,10 +37,8 @@ function getTargetConfig(target: TrackTarget) {
       return { distance: 60, offset: new THREE.Vector3(-50, 15, 30) };
     case "iss":
       return { distance: 2.5, offset: new THREE.Vector3(0, 0.5, 2) };
-    case "rocket":
-      return { distance: 3, offset: new THREE.Vector3(2, 1.5, 3) };
     case "artemis":
-      return { distance: 1.5, offset: new THREE.Vector3(0.8, 0.5, 1.2) };
+      return { distance: 2.0, offset: new THREE.Vector3(1.0, 0.6, 1.6) };
     case "starship":
       return { distance: 2.5, offset: new THREE.Vector3(0, 0.5, 2) };
     case "starlink":
@@ -59,7 +54,6 @@ function getTargetConfig(target: TrackTarget) {
 function CameraController({
   target,
   moonPosRef,
-  rocketPosRef,
   issPosRef,
   artemisPosRef,
   starshipPosRef,
@@ -67,7 +61,6 @@ function CameraController({
 }: {
   target: TrackTarget;
   moonPosRef: React.MutableRefObject<THREE.Vector3>;
-  rocketPosRef: React.MutableRefObject<THREE.Vector3>;
   issPosRef: React.MutableRefObject<THREE.Vector3>;
   artemisPosRef: React.MutableRefObject<THREE.Vector3>;
   starshipPosRef: React.MutableRefObject<THREE.Vector3>;
@@ -82,27 +75,16 @@ function CameraController({
   const getTargetPosition = useCallback(
     (t: TrackTarget): THREE.Vector3 => {
       switch (t) {
-        case "iss":
-          return issPosRef.current.clone();
-        case "rocket":
-          return rocketPosRef.current.clone();
-        case "moon":
-          return moonPosRef.current.clone();
-        case "artemis":
-          return artemisPosRef.current.clone();
-        case "starship":
-          return starshipPosRef.current.clone();
-        case "starlink":
-          return starlinkPosRef.current.clone();
-        case "sun":
-          return SUN_POSITION.clone();
-        case "earth":
-          return new THREE.Vector3(0, 0, 0);
-        default:
-          return new THREE.Vector3(0, 0, 0);
+        case "iss":      return issPosRef.current.clone();
+        case "moon":     return moonPosRef.current.clone();
+        case "artemis":  return artemisPosRef.current.clone();
+        case "starship": return starshipPosRef.current.clone();
+        case "starlink": return starlinkPosRef.current.clone();
+        case "sun":      return SUN_POSITION.clone();
+        default:         return new THREE.Vector3(0, 0, 0);
       }
     },
-    [moonPosRef, rocketPosRef, issPosRef, artemisPosRef, starshipPosRef, starlinkPosRef],
+    [moonPosRef, issPosRef, artemisPosRef, starshipPosRef, starlinkPosRef],
   );
 
   useFrame((_, dt) => {
@@ -625,13 +607,9 @@ function TrackingLabel({
    Inner scene — reads mission store
    ================================================================== */
 function SceneContent({
-  isLaunching,
-  onTelemetry,
   trackTarget,
   onTargetChange,
 }: {
-  isLaunching: boolean;
-  onTelemetry?: (t: LaunchTelemetry) => void;
   trackTarget: TrackTarget;
   onTargetChange?: (t: TrackTarget) => void;
 }) {
@@ -639,7 +617,6 @@ function SceneContent({
 
   const sunDir = useMemo(() => new THREE.Vector3(1, 0, 0), []);
   const moonPosRef = useRef(new THREE.Vector3(50, 0, 0));
-  const rocketPosRef = useRef(new THREE.Vector3(0, 6.08, 0));
   const issPosRef = useRef(new THREE.Vector3(0, 6.4, 0));
   const artemisPosRef = useRef(new THREE.Vector3(6.35, 0, 0));
   const starshipPosRef = useRef(new THREE.Vector3(0, 6.33, 0));
@@ -657,14 +634,13 @@ function SceneContent({
     }
   }, [trackTarget, trackedMissionId]);
 
-  const handleClickEarth = useCallback(() => onTargetChange?.("earth"), [onTargetChange]);
-  const handleClickMoon = useCallback(() => onTargetChange?.("moon"), [onTargetChange]);
-  const handleClickSun = useCallback(() => onTargetChange?.("sun"), [onTargetChange]);
-  const handleClickISS = useCallback(() => onTargetChange?.("iss"), [onTargetChange]);
-  const handleClickRocket = useCallback(() => onTargetChange?.("rocket"), [onTargetChange]);
-  const handleClickArtemis = useCallback(() => onTargetChange?.("artemis"), [onTargetChange]);
-  const handleClickStarship = useCallback(() => onTargetChange?.("starship"), [onTargetChange]);
-  const handleClickStarlink = useCallback(() => onTargetChange?.("starlink"), [onTargetChange]);
+  const handleClickEarth    = useCallback(() => onTargetChange?.("earth"),   [onTargetChange]);
+  const handleClickMoon     = useCallback(() => onTargetChange?.("moon"),    [onTargetChange]);
+  const handleClickSun      = useCallback(() => onTargetChange?.("sun"),     [onTargetChange]);
+  const handleClickISS      = useCallback(() => onTargetChange?.("iss"),     [onTargetChange]);
+  const handleClickArtemis  = useCallback(() => onTargetChange?.("artemis"), [onTargetChange]);
+  const handleClickStarship = useCallback(() => onTargetChange?.("starship"),[onTargetChange]);
+  const handleClickStarlink = useCallback(() => onTargetChange?.("starlink"),[onTargetChange]);
 
   return (
     <>
@@ -740,22 +716,9 @@ function SceneContent({
       <TrackingLabel posRef={starshipPosRef} label="Starship HLS" onClick={handleClickStarship} color="#88bbff" yOffset={0.5} />
       <TrackingLabel posRef={starlinkPosRef} label="Starlink-6548" onClick={handleClickStarlink} color="#cc88ff" yOffset={0.4} />
 
-      {isLaunching && (
-        <TrackingLabel posRef={rocketPosRef} label="Falcon 9" onClick={handleClickRocket} color="#ff8844" yOffset={0.4} />
-      )}
-
-      <Rocket
-        isLaunching={isLaunching}
-        padPosition={[0, 6.08, 0]}
-        scale={0.025}
-        onTelemetry={onTelemetry}
-        positionRef={rocketPosRef}
-      />
-
       <CameraController
         target={activeCameraTarget}
         moonPosRef={moonPosRef}
-        rocketPosRef={rocketPosRef}
         issPosRef={issPosRef}
         artemisPosRef={artemisPosRef}
         starshipPosRef={starshipPosRef}
@@ -769,15 +732,11 @@ function SceneContent({
    Main export
    ================================================================== */
 type Props = {
-  isLaunching?: boolean;
-  onTelemetry?: (t: LaunchTelemetry) => void;
   trackTarget?: TrackTarget;
   onTargetChange?: (t: TrackTarget) => void;
 };
 
 export default function MissionControlScene({
-  isLaunching = false,
-  onTelemetry,
   trackTarget = "overview",
   onTargetChange,
 }: Props) {
@@ -794,8 +753,6 @@ export default function MissionControlScene({
       frameloop="always"
     >
       <SceneContent
-        isLaunching={isLaunching}
-        onTelemetry={onTelemetry}
         trackTarget={trackTarget}
         onTargetChange={onTargetChange}
       />

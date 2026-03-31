@@ -98,7 +98,7 @@ export default function ArtemisRocket({ playing = true, positionRef, onClick }: 
   const CORE_H = 65.0;
   const SRB_R = 1.85; // 3.7m SRB diameter
   const SRB_H = 54.0;
-  const SRB_X = CORE_R + SRB_R + 1.2; // lateral offset
+  const SRB_X = CORE_R + SRB_R + 2.0; // lateral offset — wide enough to be clearly distinct
   const ADAPT_H = 13.0; // upper stage adapter
   const ADAPT_R_BOT = CORE_R;
   const ADAPT_R_TOP = 2.75;
@@ -106,11 +106,14 @@ export default function ArtemisRocket({ playing = true, positionRef, onClick }: 
   const CM_H = 3.5; // Orion Crew Module
   const LAS_H = 7.0; // Launch Abort System
 
-  const SCALE = 0.0025; // scene scale factor
+  // Scale: 1 model-unit = 1 metre.  At 0.008 the SLS core is 0.067 scene-units
+  // wide and 0.52 tall — clearly rocket-shaped when tracked at camera
+  // distance 1.5, matches ISS upscale philosophy (ISS is also ~10 000× bigger).
+  const SCALE = 0.008;
 
   return (
     <group ref={groupRef} onClick={onClick}>
-      {/* Scale wrapper at 1 unit = 1 meter */}
+      {/* Scale wrapper — 1 unit = 1 metre */}
       <group scale={[SCALE, SCALE, SCALE]}>
 
         {/* ── Core Stage (LOX / LH2 tank body) ─────────────────────── */}

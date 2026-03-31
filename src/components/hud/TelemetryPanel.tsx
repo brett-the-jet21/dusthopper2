@@ -3,57 +3,53 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMissionStore } from '@/lib/store/missionStore';
 
-/* Artemis launch date (Nov 16 2022, 06:47 UTC) */
+/* Artemis I launch date */
 const ARTEMIS_LAUNCH_MS = new Date('2022-11-16T06:47:00Z').getTime();
-/* Moon distance (km) — simplified live oscillation for visual effect */
-const MOON_DIST_AVG = 384400;
+const MOON_DIST_AVG = 384400; // km
 
 function formatMET(ms: number) {
-  const totalSec = Math.floor(ms / 1000);
-  const d = Math.floor(totalSec / 86400);
-  const h = Math.floor((totalSec % 86400) / 3600);
-  const m = Math.floor((totalSec % 3600) / 60);
-  const s = totalSec % 60;
-  return `${d}d ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `${d}d ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
 }
 
+// ── Constant cyan palette for all missions ──────────────────────────
+const BORDER  = 'rgba(0, 200, 255, 0.25)';
+const BG      = 'rgba(0, 8, 20, 0.90)';
+const SHADOW  = '0 8px 32px rgba(0,0,0,0.7), 0 0 20px rgba(0,200,255,0.07)';
+const CYAN    = '#00ccff';
+const CYAN_DIM = 'rgba(0,204,255,0.55)';
+
 export function TelemetryPanel() {
-  const { missions, trackedMissionId, showTelemetry, toggleTelemetry } = useMissionStore();
+  const { missions, trackedMissionId, showTelemetry } = useMissionStore();
   const [collapsed, setCollapsed] = useState(false);
   const [met, setMet] = useState(0);
-  const [missionDay, setMissionDay] = useState(0);
+  const [missionDay, setMissionDay] = useState(1);
   const [moonDist, setMoonDist] = useState(MOON_DIST_AVG);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isArtemis = trackedMissionId === 'artemis';
 
-  // Live MET counter for Artemis
   useEffect(() => {
     if (!isArtemis) return;
-    const update = () => {
+    const tick = () => {
       const now = Date.now();
       const elapsed = now - ARTEMIS_LAUNCH_MS;
       setMet(elapsed);
       setMissionDay(Math.floor(elapsed / 86400000) + 1);
-      // Oscillate Moon distance slightly for visual interest
-      setMoonDist(MOON_DIST_AVG + Math.sin(now / 300000) * 2000);
+      setMoonDist(MOON_DIST_AVG + Math.sin(now / 300000) * 1800);
     };
-    update();
-    tickRef.current = setInterval(update, 1000);
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-    };
+    tick();
+    tickRef.current = setInterval(tick, 1000);
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
   }, [isArtemis]);
 
   if (!showTelemetry || !trackedMissionId) return null;
-
   const mission = missions.get(trackedMissionId);
   if (!mission) return null;
-
-  const accentColor = isArtemis ? '#FF6B00' : '#00ffcc';
-  const borderColor = isArtemis ? 'rgba(255,107,0,0.35)' : 'rgba(0,255,200,0.3)';
-  const bgColor = isArtemis ? 'rgba(20, 8, 0, 0.9)' : 'rgba(0, 10, 20, 0.88)';
-  const glowColor = isArtemis ? 'rgba(255,107,0,0.12)' : 'rgba(0,255,200,0.08)';
 
   return (
     <div
@@ -61,62 +57,54 @@ export function TelemetryPanel() {
         position: 'fixed',
         top: 24,
         right: 24,
-        width: collapsed ? 48 : 240,
-        background: bgColor,
+        width: collapsed ? 46 : 236,
+        background: BG,
         backdropFilter: 'blur(14px)',
         WebkitBackdropFilter: 'blur(14px)',
-        border: `1px solid ${borderColor}`,
+        border: `1px solid ${BORDER}`,
         borderRadius: 14,
-        color: accentColor,
+        color: CYAN,
         fontSize: 11,
         fontFamily: 'monospace',
-        boxShadow: `0 8px 32px rgba(0,0,0,0.7), 0 0 20px ${glowColor}`,
+        boxShadow: SHADOW,
         zIndex: 100,
-        transition: 'width 0.25s ease',
+        transition: 'width 0.22s ease',
         overflow: 'hidden',
       }}
     >
-      {/* Header bar with collapse button */}
+      {/* ── Header ─────────────────────────────────────── */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          padding: collapsed ? '14px 12px' : '14px 16px 10px',
-          borderBottom: collapsed ? 'none' : `1px solid ${borderColor}`,
+          padding: collapsed ? '13px 10px' : '13px 14px 9px',
+          borderBottom: collapsed ? 'none' : `1px solid ${BORDER}`,
           gap: 8,
         }}
       >
         {!collapsed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
-            {/* Live dot */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flex: 1, minWidth: 0 }}>
+            {/* Live pulse dot */}
             <div
               style={{
-                width: 8,
-                height: 8,
-                borderRadius: '50%',
+                width: 7, height: 7, borderRadius: '50%',
                 background: '#00ff88',
-                boxShadow: '0 0 8px rgba(0,255,136,0.8)',
+                boxShadow: '0 0 7px rgba(0,255,136,0.9)',
                 flexShrink: 0,
               }}
             />
-            {/* Header title */}
             {isArtemis ? (
+              /* Artemis header — mission name in orange, rest cyan */
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {/* Artemis A-mark (CSS SVG) */}
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 3L2 20h20L12 3z" stroke="#FF6B00" strokeWidth="2" fill="none" />
-                  <path d="M7 14h10" stroke="#FF6B00" strokeWidth="1.5" />
-                  {/* Moon arc */}
-                  <path d="M15 7 A5 5 0 0 1 15 17" stroke="#FFB347" strokeWidth="1.2" fill="none" />
-                </svg>
-                <span style={{ fontWeight: 700, fontSize: 12, letterSpacing: 0.5, color: '#FF6B00' }}>
-                  ARTEMIS CONTROL
+                <ArtemisMark />
+                <span style={{ fontWeight: 700, fontSize: 12, color: '#FF6B00', letterSpacing: 0.4 }}>
+                  ARTEMIS I
                 </span>
               </div>
             ) : (
-              <span style={{ fontWeight: 700, fontSize: 12, letterSpacing: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {mission.name}
+              <span style={{ fontWeight: 700, fontSize: 12, letterSpacing: 0.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {mission.name.toUpperCase()}
               </span>
             )}
           </div>
@@ -125,55 +113,44 @@ export function TelemetryPanel() {
         {/* Collapse toggle */}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          title={collapsed ? 'Expand telemetry' : 'Collapse telemetry'}
           style={{
-            background: 'none',
-            border: 'none',
-            color: accentColor,
-            cursor: 'pointer',
-            fontSize: 16,
-            padding: '0 2px',
-            lineHeight: 1,
-            opacity: 0.7,
+            background: 'none', border: 'none',
+            color: CYAN_DIM, cursor: 'pointer',
+            fontSize: 14, padding: '0 2px', lineHeight: 1,
             flexShrink: 0,
           }}
+          title={collapsed ? 'Expand telemetry' : 'Collapse telemetry'}
         >
           {collapsed ? '▶' : '◀'}
         </button>
       </div>
 
-      {/* Body — only show when expanded */}
+      {/* ── Body ───────────────────────────────────────── */}
       {!collapsed && (
-        <div style={{ padding: '12px 16px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+        <div style={{ padding: '11px 14px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {isArtemis ? (
-            /* ── Artemis-specific telemetry ─────────────────────────── */
             <>
-              <DataRow label="MISSION" value="Artemis I — SLS/Orion" color={accentColor} />
-              <DataRow label="PHASE" value="Trans-Lunar Injection" color="rgba(255,179,71,0.9)" />
-              <Sep color={borderColor} />
-              <DataRow label="ALTITUDE" value="370 km (parking orbit)" color={accentColor} />
-              <DataRow label="VELOCITY" value="10.4 km/s  |  23,265 mph" color={accentColor} />
-              <DataRow label="INCLINATION" value="28.5°" color={accentColor} />
-              <Sep color={borderColor} />
-              <DataRow label="APOGEE" value={`${MOON_DIST_AVG.toLocaleString()} km`} color="#FFB347" />
-              <DataRow label="MOON DIST" value={`${Math.round(moonDist).toLocaleString()} km`} color="#FFB347" />
-              <Sep color={borderColor} />
-              <DataRow label="MISSION DAY" value={`Day ${missionDay}`} color={accentColor} />
-              <DataRow label="MET" value={formatMET(met)} color={accentColor} mono />
-              <Sep color={borderColor} />
-              <DataRow label="STATUS" value="✅  NOMINAL" color="#00ff88" />
+              <Row label="MISSION"     value="Artemis I — SLS/Orion" />
+              <Row label="PHASE"       value="Trans-Lunar Injection" bright />
+              <Sep />
+              <Row label="ALTITUDE"    value="370 km (parking orbit)" />
+              <Row label="VELOCITY"    value="10.4 km/s  |  23,265 mph" />
+              <Row label="INCLINATION" value="28.5°" />
+              <Sep />
+              <Row label="APOGEE"      value={`${MOON_DIST_AVG.toLocaleString()} km`} bright />
+              <Row label="MOON DIST"   value={`${Math.round(moonDist).toLocaleString()} km`} bright />
+              <Sep />
+              <Row label="MISSION DAY" value={`Day ${missionDay}`} />
+              <Row label="MET"         value={formatMET(met)} mono />
+              <Sep />
+              <Row label="STATUS"      value="✅  NOMINAL" green />
             </>
           ) : (
-            /* ── Generic telemetry for other missions ───────────────── */
             <>
-              <DataRow label="ALTITUDE" value={`${mission.telemetry.altitude.toFixed(0)} km`} color={accentColor} />
-              <DataRow label="VELOCITY" value={`${mission.telemetry.speed.toFixed(2)} km/s`} color={accentColor} />
-              <DataRow label="AGENCY" value={mission.agency} color={accentColor} highlight />
-              <DataRow
-                label="STATUS"
-                value={mission.status.toUpperCase()}
-                color="#00ff88"
-              />
+              <Row label="ALTITUDE" value={`${mission.telemetry.altitude.toFixed(0)} km`} />
+              <Row label="VELOCITY" value={`${mission.telemetry.speed.toFixed(2)} km/s`} />
+              <Row label="AGENCY"   value={mission.agency} bright />
+              <Row label="STATUS"   value={mission.status.toUpperCase()} green />
             </>
           )}
         </div>
@@ -182,37 +159,38 @@ export function TelemetryPanel() {
   );
 }
 
-function Sep({ color }: { color: string }) {
-  return <div style={{ height: 1, background: color, opacity: 0.5 }} />;
+/* ── Sub-components ─────────────────────────────────────────────── */
+
+function ArtemisMark() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
+      <path d="M12 3L2 20h20L12 3z" stroke="#FF6B00" strokeWidth="2" />
+      <path d="M7.5 14h9" stroke="#FF6B00" strokeWidth="1.5" />
+      <path d="M16 7 A5.5 5.5 0 0 1 16 17" stroke="#FFB347" strokeWidth="1.2" fill="none" />
+    </svg>
+  );
 }
 
-function DataRow({
-  label,
-  value,
-  color,
-  highlight,
-  mono,
+function Sep() {
+  return <div style={{ height: 1, background: BORDER }} />;
+}
+
+function Row({
+  label, value, bright, green, mono,
 }: {
   label: string;
   value: string;
-  color?: string;
-  highlight?: boolean;
+  bright?: boolean;
+  green?: boolean;
   mono?: boolean;
 }) {
+  const valueColor = green ? '#00ff88' : bright ? CYAN : 'rgba(255,255,255,0.82)';
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center' }}>
-      <span style={{ color: 'rgba(180,120,60,0.7)', letterSpacing: 0.6, fontSize: 10, flexShrink: 0 }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+      <span style={{ color: CYAN_DIM, fontSize: 10, letterSpacing: 0.6, flexShrink: 0 }}>
         {label}
       </span>
-      <span
-        style={{
-          color: color ?? 'rgba(255,255,255,0.9)',
-          fontWeight: highlight ? 700 : 600,
-          fontSize: 11,
-          textAlign: 'right',
-          fontFamily: mono ? 'monospace' : undefined,
-        }}
-      >
+      <span style={{ color: valueColor, fontWeight: 600, fontSize: 11, textAlign: 'right', fontFamily: mono ? 'monospace' : undefined }}>
         {value}
       </span>
     </div>

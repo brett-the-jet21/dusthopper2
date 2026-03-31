@@ -5,16 +5,15 @@ import { useMissionStore } from '@/lib/store/missionStore';
 const TIME_SCALES = [1, 60, 360, 1440, 3600] as const;
 const ZOOM_LEVELS = [0.4, 0.7, 1, 1.5, 2, 4] as const;
 
-export function CommandCenterHUD() {
-  const { playing, togglePlaying, simSpeed, setSimSpeed, freeCam, toggleFreeCam, trackedMissionId } = useMissionStore();
+// ── Constant cyan/navy palette — no per-mission theme switching ──────────
+const BORDER  = 'rgba(0, 200, 255, 0.25)';
+const BG      = 'rgba(0, 8, 20, 0.88)';
+const ACCENT  = '#00ccff';
+const ACCENT2 = '#00aaee';
+const SHADOW  = '0 8px 32px rgba(0,0,0,0.7), 0 0 24px rgba(0,200,255,0.08)';
 
-  const isArtemis = trackedMissionId === 'artemis';
-  const borderColor = isArtemis ? 'rgba(255,107,0,0.35)' : 'rgba(0,255,200,0.3)';
-  const accentColor = isArtemis ? '#FF6B00' : '#00ffcc';
-  const bgColor = isArtemis ? 'rgba(20, 8, 0, 0.88)' : 'rgba(0, 10, 20, 0.85)';
-  const glowShadow = isArtemis
-    ? '0 8px 32px rgba(0,0,0,0.6), 0 0 20px rgba(255,107,0,0.12)'
-    : '0 8px 32px rgba(0,0,0,0.6), 0 0 20px rgba(0,255,200,0.08)';
+export function CommandCenterHUD() {
+  const { playing, togglePlaying, simSpeed, setSimSpeed, freeCam, toggleFreeCam } = useMissionStore();
 
   return (
     <div
@@ -27,26 +26,25 @@ export function CommandCenterHUD() {
         display: 'flex',
         gap: 10,
         alignItems: 'center',
-        background: bgColor,
+        background: BG,
         backdropFilter: 'blur(14px)',
         WebkitBackdropFilter: 'blur(14px)',
-        border: `1px solid ${borderColor}`,
+        border: `1px solid ${BORDER}`,
         borderRadius: 14,
-        padding: '11px 22px',
-        boxShadow: glowShadow,
-        transition: 'border-color 0.4s, box-shadow 0.4s',
+        padding: '10px 20px',
+        boxShadow: SHADOW,
       }}
     >
-      {/* FREE CAM / TRACK toggle */}
+      {/* FREE CAM / TRACKING toggle */}
       <button
         onClick={toggleFreeCam}
         style={{
           background: freeCam
-            ? `linear-gradient(135deg, ${accentColor}, ${isArtemis ? '#FFB347' : '#00ccff'})`
-            : 'rgba(255,255,255,0.06)',
-          color: freeCam ? '#000' : accentColor,
-          border: freeCam ? 'none' : `1px solid ${borderColor}`,
-          padding: '9px 18px',
+            ? `linear-gradient(135deg, ${ACCENT}, ${ACCENT2})`
+            : 'rgba(0,204,255,0.07)',
+          color: freeCam ? '#000' : ACCENT,
+          border: freeCam ? 'none' : `1px solid ${BORDER}`,
+          padding: '8px 16px',
           borderRadius: 8,
           cursor: 'pointer',
           fontWeight: 700,
@@ -59,8 +57,7 @@ export function CommandCenterHUD() {
         {freeCam ? '🎥 FREE CAM' : '🎯 TRACKING'}
       </button>
 
-      {/* Divider */}
-      <div style={{ width: 1, height: 32, background: borderColor }} />
+      <Divider />
 
       {/* PLAY / PAUSE */}
       <button
@@ -68,10 +65,10 @@ export function CommandCenterHUD() {
         style={{
           background: playing
             ? 'linear-gradient(135deg, #00ff88, #00cc66)'
-            : 'linear-gradient(135deg, #ff6666, #ff3333)',
+            : 'linear-gradient(135deg, #ff5555, #cc2222)',
           color: '#000',
           border: 'none',
-          padding: '9px 18px',
+          padding: '8px 16px',
           borderRadius: 8,
           cursor: 'pointer',
           fontWeight: 800,
@@ -83,75 +80,56 @@ export function CommandCenterHUD() {
         {playing ? '⏸ PAUSE' : '▶ PLAY'}
       </button>
 
-      {/* Divider */}
-      <div style={{ width: 1, height: 32, background: borderColor }} />
+      <Divider />
 
-      {/* TIME SCALE buttons */}
+      {/* TIME SCALE */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span
-          style={{
-            color: `${accentColor}99`,
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: 1.2,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          TIME
-        </span>
+        <Label text="TIME" />
         <div style={{ display: 'flex', gap: 4 }}>
-          {TIME_SCALES.map((s) => (
-            <button
-              key={s}
-              onClick={() => setSimSpeed(s)}
-              style={{
-                background:
-                  simSpeed === s
-                    ? `linear-gradient(135deg, ${accentColor}, ${isArtemis ? '#FFB347' : '#00ccff'})`
-                    : 'rgba(255,255,255,0.06)',
-                color: simSpeed === s ? '#000' : accentColor,
-                border: `1px solid ${simSpeed === s ? 'transparent' : borderColor}`,
-                padding: '6px 10px',
-                borderRadius: 6,
-                cursor: 'pointer',
-                fontWeight: 700,
-                fontSize: 11,
-                fontFamily: 'monospace',
-                transition: 'all 0.15s',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {s === 1 ? '1×' : s >= 3600 ? `${s / 3600}k×` : s >= 60 ? `${s / 60}m×` : `${s}×`}
-            </button>
-          ))}
+          {TIME_SCALES.map((s) => {
+            const active = simSpeed === s;
+            return (
+              <button
+                key={s}
+                onClick={() => setSimSpeed(s)}
+                style={{
+                  background: active
+                    ? `linear-gradient(135deg, ${ACCENT}, ${ACCENT2})`
+                    : 'rgba(0,204,255,0.06)',
+                  color: active ? '#000' : ACCENT,
+                  border: `1px solid ${active ? 'transparent' : BORDER}`,
+                  padding: '6px 9px',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  fontWeight: 700,
+                  fontSize: 11,
+                  fontFamily: 'monospace',
+                  transition: 'all 0.15s',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {s === 1 ? '1×' : s >= 3600 ? `${s / 3600}k×` : `${s / 60}m×`}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Divider */}
-      <div style={{ width: 1, height: 32, background: borderColor }} />
+      <Divider />
 
-      {/* ZOOM buttons */}
+      {/* ZOOM presets */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span
-          style={{
-            color: `${accentColor}99`,
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: 1.2,
-          }}
-        >
-          ZOOM
-        </span>
+        <Label text="ZOOM" />
         <div style={{ display: 'flex', gap: 4 }}>
           {ZOOM_LEVELS.map((z) => (
             <button
               key={z}
               title={`Zoom ${z}×`}
               style={{
-                background: 'rgba(255,255,255,0.06)',
-                color: accentColor,
-                border: `1px solid ${borderColor}`,
-                padding: '6px 9px',
+                background: 'rgba(0,204,255,0.06)',
+                color: ACCENT,
+                border: `1px solid ${BORDER}`,
+                padding: '6px 8px',
                 borderRadius: 6,
                 cursor: 'pointer',
                 fontWeight: 700,
@@ -160,8 +138,9 @@ export function CommandCenterHUD() {
                 transition: 'all 0.15s',
               }}
               onClick={() => {
-                // Dispatch a custom event that the scene can listen to
-                window.dispatchEvent(new CustomEvent('artemis-zoom', { detail: { level: z } }));
+                window.dispatchEvent(
+                  new CustomEvent('dusthopper-zoom', { detail: { level: z } }),
+                );
               }}
             >
               {z}×
@@ -170,5 +149,25 @@ export function CommandCenterHUD() {
         </div>
       </div>
     </div>
+  );
+}
+
+function Divider() {
+  return <div style={{ width: 1, height: 30, background: BORDER }} />;
+}
+
+function Label({ text }: { text: string }) {
+  return (
+    <span
+      style={{
+        color: `${ACCENT}88`,
+        fontSize: 10,
+        fontWeight: 700,
+        letterSpacing: 1.2,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {text}
+    </span>
   );
 }
