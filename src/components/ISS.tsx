@@ -19,7 +19,7 @@ import {
    ------------------------------------------------------------------ */
 
 const EARTH_RADIUS_KM = 6371;
-const SCENE_SCALE = 6 / EARTH_RADIUS_KM; // 1 km = this many scene units
+const SCENE_SCALE = 2 / EARTH_RADIUS_KM; // 1 km = this many scene units (Earth radius = 2)
 
 // ISS TLE — hardcoded for demo; refreshable from CelesTrak in production
 const TLE_LINE1 =
@@ -117,9 +117,9 @@ export default function ISS({ onClick, positionRef }: ISSProps) {
     if (positionRef) positionRef.current.copy(pos);
   });
 
-  // ISS is tiny in scene scale (109m wingspan → ~0.001 scene units)
-  // We render it oversized so it's visible, with a scale of ~0.06
-  const s = 0.06;
+  // ISS is tiny in scene scale (109m wingspan → ~0.0003 scene units at Earth radius=2)
+  // We render it oversized so it's visible, with a scale of ~0.02
+  const s = 0.02;
 
   return (
     <group ref={groupRef} scale={[s, s, s]} onClick={onClick}>

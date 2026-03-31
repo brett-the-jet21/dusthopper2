@@ -1,125 +1,360 @@
 "use client";
 
 import { useRef, useMemo, useCallback } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars, Html } from "@react-three/drei";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
 import Earth from "./Earth";
 import Moon from "./Moon";
 import Sun, { SUN_POSITION } from "./Sun";
-import Rocket from "./Rocket";
-import ISS from "./ISS";
-import type { LaunchTelemetry } from "./Rocket";
+import { useMissionStore } from "@/lib/store/missionStore";
+import { twoline2satrec, propagate, gstime } from "satellite.js";
 
 /* ===================================================================
-   Track targets — the camera can lock on to any of these
+   Types
    =================================================================== */
 export type TrackTarget =
-  | "overview"
-  | "earth"
-  | "moon"
-  | "sun"
-  | "rocket"
-  | "iss";
+  | "overview" | "earth" | "moon" | "sun"
+  | "iss" | "artemis" | "starship" | "starlink";
 
-// Targets that move every frame and need continuous tracking
-const MOVING_TARGETS = new Set<TrackTarget>(["iss", "rocket", "moon"]);
+const MOVING_TARGETS = new Set<TrackTarget>(["iss", "moon", "starship", "starlink"]);
 
-/* Camera distances and offsets per target */
-function getTargetConfig(target: TrackTarget) {
-  switch (target) {
-    case "earth":
-      return { distance: 16, offset: new THREE.Vector3(0, 3, 16) };
-    case "moon":
-      return { distance: 8, offset: new THREE.Vector3(0, 3, 8) };
-    case "sun":
-      return { distance: 60, offset: new THREE.Vector3(-50, 15, 30) };
-    case "iss":
-      return { distance: 2.5, offset: new THREE.Vector3(0, 0.5, 2) };
-    case "rocket":
-      return { distance: 3, offset: new THREE.Vector3(2, 1.5, 3) };
-    default:
-      return { distance: 35, offset: new THREE.Vector3(0, 12, 35) };
-  }
+/* ===================================================================
+   Scene constants — Earth radius = 2.0 scene units = 6,371 km
+   =================================================================== */
+const EARTH_SCENE_R = 2.0;
+const EARTH_KM      = 6371;
+const SCENE_SCALE   = EARTH_SCENE_R / EARTH_KM;
+
+// Artemis II parking orbit: 185 km altitude, 28.5° inclination (KSC launch)
+const ARTEMIS_II_ORBIT_R = EARTH_SCENE_R + (185  / EARTH_KM) * EARTH_SCENE_R; // ~2.058
+const ARTEMIS_II_INCL    = 28.5  * (Math.PI / 180);
+
+export const STARSHIP_ORBIT_R = EARTH_SCENE_R + (250  / EARTH_KM) * EARTH_SCENE_R; // 2.079
+export const STARSHIP_INCL    = 51.6  * (Math.PI / 180);
+const STARSHIP_ANG_VEL        = (2 * Math.PI) / (91.5  * 60);
+
+const ISS_ORBIT_R = EARTH_SCENE_R + (408  / EARTH_KM) * EARTH_SCENE_R; // 2.128
+const ISS_INCL    = 51.64 * (Math.PI / 180);
+
+export const STARLINK_ORBIT_R = EARTH_SCENE_R + (550  / EARTH_KM) * EARTH_SCENE_R; // 2.173
+export const STARLINK_INCL    = 53    * (Math.PI / 180);
+const STARLINK_ANG_VEL        = (2 * Math.PI) / (95.6  * 60);
+
+/* Per-mission neon colors */
+const COLORS = {
+  artemis: "#FF6B00",
+  iss:     "#00ff88",
+  starship:"#cc44ff",
+  starlink:"#4488ff",
+} as const;
+
+/* ===================================================================
+   ISS TLE
+   =================================================================== */
+const TLE1 = "1 25544U 98067A   25055.54896991  .00024200  00000+0  42900-3 0  9993";
+const TLE2 = "2 25544  51.6420 294.2170 0003568 351.0060  64.9350 15.50037360438908";
+const satrec = twoline2satrec(TLE1, TLE2);
+
+/* ===================================================================
+   Pulsing spacecraft dot
+   =================================================================== */
+function SpacecraftDot({
+  color,
+  positionRef,
+  onClick,
+}: {
+  color: string;
+  positionRef: React.MutableRefObject<THREE.Vector3>;
+  onClick?: () => void;
+}) {
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  useFrame((state) => {
+    if (!meshRef.current) return;
+    meshRef.current.position.copy(positionRef.current);
+    // Subtle pulse: scale 0.8 → 1.2 on a 2 s loop
+    meshRef.current.scale.setScalar(1.0 + Math.sin(state.clock.elapsedTime * 3) * 0.2);
+  });
+
+  return (
+    <mesh ref={meshRef} onClick={onClick}>
+      <sphereGeometry args={[0.025, 8, 8]} />
+      <meshBasicMaterial color={color} />
+    </mesh>
+  );
 }
 
-/* ------------------------------------------------------------------
-   Camera controller — smooth transitions + orbit around locked target
-   ------------------------------------------------------------------ */
-function CameraController({
-  target,
-  moonPosRef,
-  rocketPosRef,
-  issPosRef,
+/* ===================================================================
+   ISS tracker — real TLE propagation every frame
+   =================================================================== */
+function ISSTracker({
+  positionRef,
+  onClick,
 }: {
-  target: TrackTarget;
-  moonPosRef: React.MutableRefObject<THREE.Vector3>;
-  rocketPosRef: React.MutableRefObject<THREE.Vector3>;
-  issPosRef: React.MutableRefObject<THREE.Vector3>;
+  positionRef: React.MutableRefObject<THREE.Vector3>;
+  onClick?: () => void;
 }) {
-  const { camera } = useThree();
-  const controlsRef = useRef<any>(null);
-  const isTransitioning = useRef(false);
-  const prevTarget = useRef<TrackTarget>("overview");
-  const transitionProgress = useRef(0);
+  useFrame(() => {
+    const now = new Date();
+    const result = propagate(satrec, now);
+    if (!result?.position || typeof result.position === "boolean") return;
+    const pos = result.position as { x: number; y: number; z: number };
+    const gmst = gstime(now);
+    const cosG = Math.cos(gmst);
+    const sinG = Math.sin(gmst);
+    // ECI → ECEF → Three.js Y-up
+    positionRef.current.set(
+      ( pos.x * cosG + pos.y * sinG) * SCENE_SCALE,
+      ( pos.z) * SCENE_SCALE,
+      -(-pos.x * sinG + pos.y * cosG) * SCENE_SCALE,
+    );
+  });
 
-  const getTargetPosition = useCallback(
-    (t: TrackTarget): THREE.Vector3 => {
-      switch (t) {
-        case "iss":
-          return issPosRef.current.clone();
-        case "rocket":
-          return rocketPosRef.current.clone();
-        case "moon":
-          return moonPosRef.current.clone();
-        case "sun":
-          return SUN_POSITION.clone();
-        case "earth":
-          return new THREE.Vector3(0, 0, 0);
-        default:
-          return new THREE.Vector3(0, 0, 0);
-      }
-    },
-    [moonPosRef, rocketPosRef, issPosRef],
+  return <SpacecraftDot color={COLORS.iss} positionRef={positionRef} onClick={onClick} />;
+}
+
+/* ===================================================================
+   Generic circular orbit tracker — uses real angular velocity × simSpeed
+   =================================================================== */
+function CircularTracker({
+  positionRef,
+  onClick,
+  playing,
+  simSpeed,
+  orbitR,
+  inclination,
+  angVel,
+  startAngle,
+  color,
+}: {
+  positionRef: React.MutableRefObject<THREE.Vector3>;
+  onClick?: () => void;
+  playing: boolean;
+  simSpeed: number;
+  orbitR: number;
+  inclination: number;
+  angVel: number;  // rad/s at 1× speed
+  startAngle: number;
+  color: string;
+}) {
+  const angleRef = useRef(startAngle);
+
+  useFrame((_, delta) => {
+    if (playing) angleRef.current += angVel * delta * simSpeed;
+    const a = angleRef.current;
+    positionRef.current.set(
+      Math.cos(a) * orbitR,
+      Math.sin(a) * orbitR * Math.sin(inclination),
+      Math.sin(a) * orbitR * Math.cos(inclination),
+    );
+  });
+
+  return <SpacecraftDot color={color} positionRef={positionRef} onClick={onClick} />;
+}
+
+/* ===================================================================
+   Neon glow orbit path — two overlapping lines: bright core + additive glow
+   =================================================================== */
+function GlowOrbitPath({
+  radius,
+  color,
+  inclination = 0,
+}: {
+  radius: number;
+  color: string;
+  inclination?: number;
+}) {
+  const { core, glow } = useMemo(() => {
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 360; i++) {
+      const t = (i / 360) * Math.PI * 2;
+      pts.push(new THREE.Vector3(
+        Math.cos(t) * radius,
+        Math.sin(t) * Math.sin(inclination) * radius,
+        Math.sin(t) * Math.cos(inclination) * radius,
+      ));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    return {
+      core: new THREE.Line(geo, new THREE.LineBasicMaterial({
+        color, transparent: true, opacity: 1.0, depthWrite: false,
+      })),
+      glow: new THREE.Line(geo, new THREE.LineBasicMaterial({
+        color, transparent: true, opacity: 0.18,
+        blending: THREE.AdditiveBlending, depthWrite: false,
+      })),
+    };
+  }, [radius, inclination, color]);
+
+  return (
+    <>
+      <primitive object={core} />
+      <primitive object={glow} />
+    </>
   );
+}
+
+/* ===================================================================
+   Artemis II pre-launch dashed orbit path — animated "marching ants"
+   Shows the planned 185 km circular parking orbit at KSC inclination
+   =================================================================== */
+function ArtemisIIPreLaunchPath() {
+  const matRef = useRef<THREE.LineDashedMaterial | null>(null);
+
+  const line = useMemo(() => {
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 360; i++) {
+      const theta = (i / 360) * Math.PI * 2;
+      const x = Math.cos(theta) * ARTEMIS_II_ORBIT_R;
+      const y = Math.sin(theta) * Math.sin(ARTEMIS_II_INCL) * ARTEMIS_II_ORBIT_R;
+      const z = Math.sin(theta) * Math.cos(ARTEMIS_II_INCL) * ARTEMIS_II_ORBIT_R;
+      pts.push(new THREE.Vector3(x, y, z));
+    }
+    const geo = new THREE.BufferGeometry().setFromPoints(pts);
+    const mat = new THREE.LineDashedMaterial({
+      color: COLORS.artemis,
+      dashSize: 0.12,
+      gapSize: 0.08,
+      transparent: true,
+      opacity: 0.8,
+      depthWrite: false,
+    });
+    matRef.current = mat;
+    const l = new THREE.Line(geo, mat);
+    l.computeLineDistances();
+    return l;
+  }, []);
 
   useFrame((_, dt) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (matRef.current) (matRef.current as any).dashOffset -= dt * 0.18;
+  });
+
+  return <primitive object={line} />;
+}
+
+/* ===================================================================
+   Camera controller
+
+   TRACKING mode (freeCam=false):
+     • Moving targets (spacecraft/moon): continuously lerp to follow at lerp 0.02.
+       OrbitControls disabled.
+     • Static targets (earth/sun/overview): one-time cubic ease-out transition,
+       then OrbitControls re-enabled.
+
+   FREE CAM mode (freeCam=true):
+     • OrbitControls always active. One-time jump on target change, then user drives.
+   =================================================================== */
+function CameraController({
+  target,
+  freeCam,
+  posRefs,
+}: {
+  target: TrackTarget;
+  freeCam: boolean;
+  posRefs: {
+    moon:     React.MutableRefObject<THREE.Vector3>;
+    iss:      React.MutableRefObject<THREE.Vector3>;
+    starship: React.MutableRefObject<THREE.Vector3>;
+    starlink: React.MutableRefObject<THREE.Vector3>;
+  };
+}) {
+  const controlsRef  = useRef<any>(null);
+  const prevTarget   = useRef<TrackTarget>("overview");
+  const prevFreeCam  = useRef(true);
+  // One-time transition
+  const inTransition = useRef(false);
+  const tProg        = useRef(0);
+  const startCam     = useRef(new THREE.Vector3());
+  const startLook    = useRef(new THREE.Vector3());
+  const endCam       = useRef(new THREE.Vector3());
+  const endLook      = useRef(new THREE.Vector3());
+
+  function getLivePos(t: TrackTarget): THREE.Vector3 {
+    switch (t) {
+      case "iss":      return posRefs.iss.current.clone();
+      case "moon":     return posRefs.moon.current.clone();
+      case "starship": return posRefs.starship.current.clone();
+      case "starlink": return posRefs.starlink.current.clone();
+      case "sun":      return SUN_POSITION.clone();
+      default:         return new THREE.Vector3(0, 0, 0); // earth / overview / artemis (pre-launch)
+    }
+  }
+
+  function staticOffset(t: TrackTarget): THREE.Vector3 {
+    switch (t) {
+      case "earth":    return new THREE.Vector3(0, 1.5, 6.5);
+      case "artemis":  return new THREE.Vector3(-1.5, 0.8, 4.5); // KSC-side close-up
+      case "moon":     return new THREE.Vector3(0, 0.5, 2);
+      case "sun":      return new THREE.Vector3(-30, 10, 20);
+      default:         return new THREE.Vector3(0, 1.5, 6.5);
+    }
+  }
+
+  /** Compute the desired camera position when tracking a spacecraft */
+  function trackingCamPos(craftPos: THREE.Vector3): THREE.Vector3 {
+    const radial = craftPos.clone().normalize();
+    const up     = new THREE.Vector3(0, 1, 0);
+    const right  = radial.clone().cross(up).normalize();
+    const camUp  = radial.clone().cross(right).normalize();
+    return craftPos.clone()
+      .add(radial.multiplyScalar(0.8))
+      .add(camUp.multiplyScalar(0.3));
+  }
+
+  useFrame((state, dt) => {
     if (!controlsRef.current) return;
 
-    // Detect target change
-    if (target !== prevTarget.current) {
-      isTransitioning.current = true;
-      transitionProgress.current = 0;
-      prevTarget.current = target;
+    const targetChanged = target   !== prevTarget.current;
+    const modeChanged   = freeCam  !== prevFreeCam.current;
+
+    if (targetChanged || modeChanged) {
+      prevTarget.current  = target;
+      prevFreeCam.current = freeCam;
+
+      const objPos = getLivePos(target);
+
+      // Start a one-time glide transition
+      inTransition.current = true;
+      tProg.current = 0;
+      startCam.current.copy(state.camera.position);
+      startLook.current.copy(controlsRef.current.target);
+      endLook.current.copy(objPos);
+
+      if (!freeCam && MOVING_TARGETS.has(target)) {
+        // Land camera in tracking position; continuous follow begins after
+        endCam.current.copy(trackingCamPos(objPos));
+      } else {
+        endCam.current.copy(objPos.clone().add(staticOffset(target)));
+      }
+
+      // Enable/disable controls
+      controlsRef.current.enabled = freeCam || !MOVING_TARGETS.has(target);
     }
 
-    const objPos = getTargetPosition(target);
-    const config = getTargetConfig(target);
+    // ── TRACKING: continuously follow moving spacecraft ──────────
+    if (!freeCam && MOVING_TARGETS.has(target)) {
+      const craftPos  = getLivePos(target);
+      const desiredPos = trackingCamPos(craftPos);
 
-    if (isTransitioning.current) {
-      transitionProgress.current = Math.min(
-        transitionProgress.current + dt * 1.5,
-        1,
-      );
-      const t = 1 - Math.pow(1 - transitionProgress.current, 3); // ease-out cubic
+      state.camera.position.lerp(desiredPos, 0.02);
+      state.camera.lookAt(craftPos);
+      // Keep controls.target synced so switching to FREE CAM doesn't jump
+      controlsRef.current.target.copy(craftPos);
 
-      // Smoothly move orbit target to the object position
-      controlsRef.current.target.lerp(objPos, t * 0.12);
+    // ── One-time glide transition (static targets or FREE CAM jumps) ──
+    } else if (inTransition.current) {
+      tProg.current = Math.min(tProg.current + dt * 1.2, 1);
+      const ease = 1 - Math.pow(1 - tProg.current, 3);
+      state.camera.position.lerpVectors(startCam.current, endCam.current, ease);
+      controlsRef.current.target.lerpVectors(startLook.current, endLook.current, ease);
 
-      // For the initial transition, move camera to a good viewing angle
-      const desiredCamPos = objPos.clone().add(config.offset);
-      camera.position.lerp(desiredCamPos, t * 0.08);
-
-      if (transitionProgress.current >= 1) {
-        isTransitioning.current = false;
+      if (tProg.current >= 1) {
+        inTransition.current = false;
+        state.camera.position.copy(endCam.current);
+        controlsRef.current.target.copy(endLook.current);
       }
-    } else if (MOVING_TARGETS.has(target)) {
-      // Continuously update orbit center to follow moving objects
-      controlsRef.current.target.lerp(objPos, 0.08);
-      // Keep camera at a consistent distance while following
-      const camDir = camera.position.clone().sub(controlsRef.current.target).normalize();
-      const desiredPos = objPos.clone().add(camDir.multiplyScalar(config.distance));
-      camera.position.lerp(desiredPos, 0.06);
     }
 
     controlsRef.current.update();
@@ -128,446 +363,130 @@ function CameraController({
   return (
     <OrbitControls
       ref={controlsRef}
-      enablePan={true}
-      enableZoom={true}
-      enableRotate={true}
-      zoomSpeed={0.8}
-      rotateSpeed={0.5}
-      panSpeed={0.4}
-      minDistance={0.1}
-      maxDistance={800}
       enableDamping
-      dampingFactor={0.06}
+      dampingFactor={0.04}
+      rotateSpeed={0.25}
+      zoomSpeed={0.4}
+      autoRotate={false}
+      enablePan={false}
+      minDistance={2.8}
+      maxDistance={20}
+      minPolarAngle={Math.PI * 0.1}
+      maxPolarAngle={Math.PI * 0.9}
     />
   );
 }
 
-/* ------------------------------------------------------------------
-   Neon orbit tracers
-   ------------------------------------------------------------------ */
-const orbits = [
-  { radius: 8.2, tilt: 0.4, rot: 0.2, color: "#00ffff" },
-  { radius: 9.5, tilt: 0.85, rot: 1.1, color: "#ff00ff" },
-  { radius: 7.8, tilt: 0.15, rot: 2.8, color: "#00ff88" },
-  { radius: 10.5, tilt: 1.2, rot: 0.6, color: "#4488ff" },
-];
-
-function OrbitTracers() {
-  const groupRef = useRef<THREE.Group>(null);
-  useFrame((_, dt) => {
-    if (groupRef.current) groupRef.current.rotation.y += dt * 0.015;
-  });
-
-  return (
-    <group ref={groupRef}>
-      {orbits.map((o, i) => (
-        <group key={i}>
-          <mesh rotation={[Math.PI / 2 + o.tilt, 0, o.rot]}>
-            <torusGeometry args={[o.radius, 0.012, 16, 200]} />
-            <meshBasicMaterial
-              color={o.color}
-              transparent
-              opacity={0.4}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-            />
-          </mesh>
-          <mesh rotation={[Math.PI / 2 + o.tilt, 0, o.rot]}>
-            <torusGeometry args={[o.radius, 0.06, 16, 200]} />
-            <meshBasicMaterial
-              color={o.color}
-              transparent
-              opacity={0.08}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-            />
-          </mesh>
-        </group>
-      ))}
-    </group>
-  );
-}
-
-/* ------------------------------------------------------------------
-   Satellite constellation
-   ------------------------------------------------------------------ */
-function Satellites() {
-  const ref = useRef<THREE.InstancedMesh>(null);
-  const count = 80;
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-
-  const sats = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < count; i++) {
-      arr.push({
-        radius: 7.0 + Math.random() * 3.5,
-        speed: 0.15 + Math.random() * 0.4,
-        tilt: (Math.random() - 0.5) * 1.6,
-        phase: Math.random() * Math.PI * 2,
-        rotAxis: Math.random() * Math.PI * 2,
-      });
-    }
-    return arr;
-  }, []);
-
-  useFrame((state) => {
-    if (!ref.current) return;
-    const t = state.clock.elapsedTime;
-    sats.forEach((s, i) => {
-      const angle = t * s.speed + s.phase;
-      const x = Math.cos(angle) * s.radius;
-      const z = Math.sin(angle) * s.radius;
-      const y =
-        Math.sin(angle + s.rotAxis) * Math.sin(s.tilt) * s.radius * 0.3;
-      dummy.position.set(x, y, z);
-      dummy.scale.setScalar(0.04);
-      dummy.updateMatrix();
-      ref.current!.setMatrixAt(i, dummy.matrix);
-    });
-    ref.current.instanceMatrix.needsUpdate = true;
-  });
-
-  return (
-    <instancedMesh ref={ref} args={[undefined, undefined, count]}>
-      <sphereGeometry args={[1, 6, 6]} />
-      <meshBasicMaterial
-        color="#88ffff"
-        transparent
-        opacity={0.7}
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-      />
-    </instancedMesh>
-  );
-}
-
-/* ------------------------------------------------------------------
-   Shooting stars
-   ------------------------------------------------------------------ */
-function ShootingStars() {
-  const ref = useRef<THREE.Group>(null);
-  const stars = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < 12; i++) {
-      arr.push({
-        delay: Math.random() * 30,
-        duration: 0.5 + Math.random() * 0.8,
-        start: new THREE.Vector3(
-          (Math.random() - 0.5) * 400,
-          80 + Math.random() * 200,
-          (Math.random() - 0.5) * 400,
-        ),
-        dir: new THREE.Vector3(
-          (Math.random() - 0.5) * 2,
-          -1 - Math.random(),
-          (Math.random() - 0.5) * 2,
-        ).normalize(),
-        speed: 80 + Math.random() * 120,
-      });
-    }
-    return arr;
-  }, []);
-
-  useFrame((state) => {
-    if (!ref.current) return;
-    const t = state.clock.elapsedTime;
-    ref.current.children.forEach((child, i) => {
-      const s = stars[i];
-      const cycle = (t + s.delay) % (s.delay + s.duration + 5);
-      if (cycle < s.duration) {
-        const p = cycle / s.duration;
-        const pos = s.start
-          .clone()
-          .add(s.dir.clone().multiplyScalar(p * s.speed));
-        child.position.copy(pos);
-        (child as THREE.Mesh).scale.setScalar(1 - p * 0.8);
-        ((child as THREE.Mesh).material as THREE.Material).opacity =
-          (1 - p) * 0.9;
-        child.visible = true;
-      } else {
-        child.visible = false;
-      }
-    });
-  });
-
-  return (
-    <group ref={ref}>
-      {stars.map((_, i) => (
-        <mesh key={i} visible={false}>
-          <sphereGeometry args={[0.15, 4, 4]} />
-          <meshBasicMaterial
-            color="#ffffff"
-            transparent
-            opacity={0}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-          />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-/* ------------------------------------------------------------------
-   Moon orbit path
-   ------------------------------------------------------------------ */
-function MoonOrbitPath() {
-  return (
-    <mesh rotation={[Math.PI / 2, 0, 0]}>
-      <torusGeometry args={[50, 0.03, 8, 256]} />
-      <meshBasicMaterial
-        color="#445566"
-        transparent
-        opacity={0.12}
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-      />
-    </mesh>
-  );
-}
-
-/* ------------------------------------------------------------------
-   Object labels
-   ------------------------------------------------------------------ */
-function ObjectLabel({
-  position,
-  label,
-  onClick,
-  color = "#ffffff",
+/* ===================================================================
+   Scene content
+   =================================================================== */
+function SceneContent({
+  trackTarget,
+  onTargetChange,
 }: {
-  position: THREE.Vector3 | [number, number, number];
-  label: string;
-  onClick?: () => void;
-  color?: string;
+  trackTarget: TrackTarget;
+  onTargetChange?: (t: TrackTarget) => void;
 }) {
-  const pos =
-    position instanceof THREE.Vector3 ? position.toArray() : position;
-  return (
-    <Html
-      position={[pos[0], pos[1] + 2.5, pos[2]]}
-      center
-      distanceFactor={40}
-      style={{ pointerEvents: "auto" }}
-    >
-      <button
-        onClick={onClick}
-        className="group flex flex-col items-center gap-1 cursor-pointer select-none"
-        style={{ transform: "translateY(-10px)" }}
-      >
-        <span
-          className="text-[10px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded-full backdrop-blur-sm border transition-all group-hover:scale-110"
-          style={{
-            color,
-            borderColor: color + "33",
-            backgroundColor: "#00000088",
-          }}
-        >
-          {label}
-        </span>
-        <div
-          className="w-0.5 h-3 rounded-full opacity-40"
-          style={{ backgroundColor: color }}
-        />
-      </button>
-    </Html>
-  );
-}
+  const { trackedMissionId, playing, simSpeed, freeCam } = useMissionStore();
+  const sunDir = useMemo(() => new THREE.Vector3(1, 0, 0), []);
 
-/* Floating label that follows a ref position */
-function TrackingLabel({
-  posRef,
-  label,
-  onClick,
-  color = "#ffffff",
-  yOffset = 2.5,
-}: {
-  posRef: React.MutableRefObject<THREE.Vector3>;
-  label: string;
-  onClick?: () => void;
-  color?: string;
-  yOffset?: number;
-}) {
-  const ref = useRef<THREE.Group>(null);
+  const moonPosRef     = useRef(new THREE.Vector3(16.7, 0, 0));
+  const issPosRef      = useRef(new THREE.Vector3(0, ISS_ORBIT_R, 0));
+  const starshipPosRef = useRef(new THREE.Vector3(0, STARSHIP_ORBIT_R, 0));
+  const starlinkPosRef = useRef(new THREE.Vector3(-STARLINK_ORBIT_R, 0, 0));
 
-  useFrame(() => {
-    if (ref.current) {
-      ref.current.position.copy(posRef.current);
+  const activeCameraTarget = useMemo((): TrackTarget => {
+    if (trackTarget !== "overview") return trackTarget;
+    switch (trackedMissionId) {
+      case "artemis":       return "artemis";
+      case "iss":           return "iss";
+      case "starship-hls1": return "starship";
+      case "starlink-6548": return "starlink";
+      default:              return "overview";
     }
-  });
+  }, [trackTarget, trackedMissionId]);
+
+  const toEarth    = useCallback(() => onTargetChange?.("earth"),    [onTargetChange]);
+  const toMoon     = useCallback(() => onTargetChange?.("moon"),     [onTargetChange]);
+  const toSun      = useCallback(() => onTargetChange?.("sun"),      [onTargetChange]);
+  const toISS      = useCallback(() => onTargetChange?.("iss"),      [onTargetChange]);
+  const toStarship = useCallback(() => onTargetChange?.("starship"), [onTargetChange]);
+  const toStarlink = useCallback(() => onTargetChange?.("starlink"), [onTargetChange]);
 
   return (
-    <group ref={ref}>
-      <Html
-        center
-        distanceFactor={40}
-        position={[0, yOffset, 0]}
-        style={{ pointerEvents: "auto" }}
-      >
-        <button
-          onClick={onClick}
-          className="group flex flex-col items-center gap-1 cursor-pointer select-none"
-          style={{ transform: "translateY(-10px)" }}
-        >
-          <span
-            className="text-[10px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded-full backdrop-blur-sm border transition-all group-hover:scale-110 whitespace-nowrap"
-            style={{
-              color,
-              borderColor: color + "33",
-              backgroundColor: "#00000088",
-            }}
-          >
-            {label}
-          </span>
-          <div
-            className="w-0.5 h-2 rounded-full opacity-40"
-            style={{ backgroundColor: color }}
-          />
-        </button>
-      </Html>
-    </group>
+    <>
+      {/* Environment */}
+      <Stars radius={400} depth={80} count={8000} factor={2.5} saturation={0.1} fade={false} />
+      <ambientLight intensity={0.04} />
+      <directionalLight position={[80, 10, 0]} intensity={2.2} />
+      <pointLight position={[-20, 0, 0]} intensity={0.08} color="#2244ff" />
+
+      {/* Celestial bodies */}
+      <Earth radius={2} onClick={toEarth} showKSC />
+      <Moon sunDirection={sunDir} onClick={toMoon} positionRef={moonPosRef} />
+      <Sun onClick={toSun} />
+
+      {/* Spacecraft — real angular velocities scaled by simSpeed */}
+      <ISSTracker positionRef={issPosRef} onClick={toISS} />
+      <CircularTracker
+        positionRef={starshipPosRef} onClick={toStarship}
+        playing={playing} simSpeed={simSpeed}
+        orbitR={STARSHIP_ORBIT_R} inclination={STARSHIP_INCL}
+        angVel={STARSHIP_ANG_VEL} startAngle={Math.PI * 0.7}
+        color={COLORS.starship}
+      />
+      <CircularTracker
+        positionRef={starlinkPosRef} onClick={toStarlink}
+        playing={playing} simSpeed={simSpeed}
+        orbitR={STARLINK_ORBIT_R} inclination={STARLINK_INCL}
+        angVel={STARLINK_ANG_VEL} startAngle={Math.PI * 1.4}
+        color={COLORS.starlink}
+      />
+
+      {/* Artemis II pre-launch dashed orbit path */}
+      <ArtemisIIPreLaunchPath />
+
+      {/* Neon glow orbit paths */}
+      <GlowOrbitPath radius={ISS_ORBIT_R}      color={COLORS.iss}      inclination={ISS_INCL} />
+      <GlowOrbitPath radius={STARSHIP_ORBIT_R} color={COLORS.starship} inclination={STARSHIP_INCL} />
+      <GlowOrbitPath radius={STARLINK_ORBIT_R} color={COLORS.starlink} inclination={STARLINK_INCL} />
+
+      {/* Camera */}
+      <CameraController
+        target={activeCameraTarget}
+        freeCam={freeCam}
+        posRefs={{
+          moon:     moonPosRef,
+          iss:      issPosRef,
+          starship: starshipPosRef,
+          starlink: starlinkPosRef,
+        }}
+      />
+    </>
   );
 }
 
-/* ==================================================================
-   Main scene
-   ================================================================== */
+/* ===================================================================
+   Main export
+   =================================================================== */
 type Props = {
-  isLaunching?: boolean;
-  onTelemetry?: (t: LaunchTelemetry) => void;
   trackTarget?: TrackTarget;
   onTargetChange?: (t: TrackTarget) => void;
 };
 
 export default function MissionControlScene({
-  isLaunching = false,
-  onTelemetry,
   trackTarget = "overview",
   onTargetChange,
 }: Props) {
-  const sunDir = useMemo(() => new THREE.Vector3(1, 0, 0), []);
-  const moonPosRef = useRef(new THREE.Vector3(50, 0, 0));
-  const rocketPosRef = useRef(new THREE.Vector3(0, 6.08, 0));
-  const issPosRef = useRef(new THREE.Vector3(0, 6.4, 0));
-
-  const handleClickEarth = useCallback(
-    () => onTargetChange?.("earth"),
-    [onTargetChange],
-  );
-  const handleClickMoon = useCallback(
-    () => onTargetChange?.("moon"),
-    [onTargetChange],
-  );
-  const handleClickSun = useCallback(
-    () => onTargetChange?.("sun"),
-    [onTargetChange],
-  );
-  const handleClickISS = useCallback(
-    () => onTargetChange?.("iss"),
-    [onTargetChange],
-  );
-  const handleClickRocket = useCallback(
-    () => onTargetChange?.("rocket"),
-    [onTargetChange],
-  );
-
   return (
     <Canvas
-      camera={{ position: [0, 12, 35], fov: 45, near: 0.01, far: 3000 }}
-      style={{ width: "100%", height: "100%" }}
-      gl={{
-        antialias: true,
-        toneMapping: THREE.ACESFilmicToneMapping,
-        toneMappingExposure: 1.0,
-        powerPreference: "high-performance",
-      }}
+      camera={{ position: [0, 1.5, 6.5], fov: 40, near: 0.001, far: 10000 }}
+      style={{ width: "100%", height: "100%", background: "#000000" }}
+      gl={{ antialias: true }}
       frameloop="always"
     >
-      <Stars
-        radius={1500}
-        depth={400}
-        count={12000}
-        factor={4.5}
-        saturation={0.2}
-      />
-
-      <ambientLight intensity={0.04} />
-      <directionalLight position={[15, 2, 0]} intensity={2.5} color="#fff5e6" />
-      <directionalLight
-        position={[-8, -2, -3]}
-        intensity={0.08}
-        color="#334466"
-      />
-
-      <Earth radius={6} onClick={handleClickEarth} />
-
-      <Moon
-        sunDirection={sunDir}
-        onClick={handleClickMoon}
-        positionRef={moonPosRef}
-      />
-      <MoonOrbitPath />
-
-      <Sun onClick={handleClickSun} />
-
-      <ISS onClick={handleClickISS} positionRef={issPosRef} />
-
-      <OrbitTracers />
-      <Satellites />
-      <ShootingStars />
-
-      {/* Static labels */}
-      <ObjectLabel
-        position={[0, 6.5, 0]}
-        label="Earth"
-        onClick={handleClickEarth}
-        color="#44aaff"
-      />
-      <ObjectLabel
-        position={SUN_POSITION.toArray()}
-        label="Sun"
-        onClick={handleClickSun}
-        color="#ffaa33"
-      />
-
-      {/* Tracking labels */}
-      <TrackingLabel
-        posRef={moonPosRef}
-        label="Moon"
-        onClick={handleClickMoon}
-        color="#aaaacc"
-        yOffset={3}
-      />
-      <TrackingLabel
-        posRef={issPosRef}
-        label="ISS"
-        onClick={handleClickISS}
-        color="#66ffaa"
-        yOffset={0.8}
-      />
-      {isLaunching && (
-        <TrackingLabel
-          posRef={rocketPosRef}
-          label="Falcon 9"
-          onClick={handleClickRocket}
-          color="#ff8844"
-          yOffset={0.4}
-        />
-      )}
-
-      <Rocket
-        isLaunching={isLaunching}
-        padPosition={[0, 6.08, 0]}
-        scale={0.025}
-        onTelemetry={onTelemetry}
-        positionRef={rocketPosRef}
-      />
-
-      <CameraController
-        target={trackTarget}
-        moonPosRef={moonPosRef}
-        rocketPosRef={rocketPosRef}
-        issPosRef={issPosRef}
-      />
+      <color attach="background" args={["#000000"]} />
+      <SceneContent trackTarget={trackTarget} onTargetChange={onTargetChange} />
     </Canvas>
   );
 }
