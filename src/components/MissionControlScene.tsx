@@ -1,18 +1,17 @@
 "use client";
 
 import { useRef, useMemo, useCallback } from "react";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls, Stars, Html } from "@react-three/drei";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
 import Earth from "./Earth";
 import Moon from "./Moon";
 import Sun, { SUN_POSITION } from "./Sun";
-import ISS from "./ISS";
-import ArtemisRocket from "./ArtemisRocket";
 import { useMissionStore } from "@/lib/store/missionStore";
+import { twoline2satrec, propagate, gstime } from "satellite.js";
 
 /* ===================================================================
-   Track targets
+   Types
    =================================================================== */
 export type TrackTarget =
   | "overview"
@@ -24,97 +23,277 @@ export type TrackTarget =
   | "starship"
   | "starlink";
 
-const MOVING_TARGETS = new Set<TrackTarget>(["iss", "moon", "artemis", "starship", "starlink"]);
+/* ===================================================================
+   Scene constants — Earth radius = 2.0 scene units
+   =================================================================== */
+const EARTH_SCENE_R = 2.0;
+const EARTH_KM = 6371;
+const SCENE_SCALE = EARTH_SCENE_R / EARTH_KM;
 
-/* Camera distances and offsets per target */
-function getTargetConfig(target: TrackTarget) {
-  switch (target) {
-    case "earth":
-      return { distance: 5, offset: new THREE.Vector3(0, 1, 5) };
-    case "moon":
-      return { distance: 5, offset: new THREE.Vector3(0, 2, 5) };
-    case "sun":
-      return { distance: 60, offset: new THREE.Vector3(-50, 15, 30) };
-    case "iss":
-      return { distance: 0.8, offset: new THREE.Vector3(0, 0.15, 0.6) };
-    case "artemis":
-      return { distance: 0.6, offset: new THREE.Vector3(0.3, 0.2, 0.5) };
-    case "starship":
-      return { distance: 0.8, offset: new THREE.Vector3(0, 0.15, 0.6) };
-    case "starlink":
-      return { distance: 0.6, offset: new THREE.Vector3(0.15, 0.1, 0.5) };
-    default:
-      return { distance: 10, offset: new THREE.Vector3(0, 3, 8) };
-  }
+const ARTEMIS_ORBIT_R = EARTH_SCENE_R + (370 / EARTH_KM) * EARTH_SCENE_R; // ~2.116
+const ARTEMIS_INCL    = 28.5 * (Math.PI / 180);
+const ARTEMIS_PERIOD  = 91.5 * 60; // seconds
+const ARTEMIS_SPEED   = 200;       // visual speedup
+
+export const STARSHIP_ORBIT_R = EARTH_SCENE_R + (250 / EARTH_KM) * EARTH_SCENE_R; // ~2.079
+export const STARSHIP_INCL    = 51.6 * (Math.PI / 180);
+
+export const STARLINK_ORBIT_R = EARTH_SCENE_R + (550 / EARTH_KM) * EARTH_SCENE_R; // ~2.173
+export const STARLINK_INCL    = 53 * (Math.PI / 180);
+
+/* ===================================================================
+   ISS TLE — satellite.js propagation
+   =================================================================== */
+const TLE1 = "1 25544U 98067A   25055.54896991  .00024200  00000+0  42900-3 0  9993";
+const TLE2 = "2 25544  51.6420 294.2170 0003568 351.0060  64.9350 15.50037360438908";
+const satrec = twoline2satrec(TLE1, TLE2);
+
+/* ===================================================================
+   Tiny dot — all spacecraft render as this
+   =================================================================== */
+function SpacecraftDot({
+  color,
+  positionRef,
+  onClick,
+}: {
+  color: string;
+  positionRef: React.MutableRefObject<THREE.Vector3>;
+  onClick?: () => void;
+}) {
+  const meshRef = useRef<THREE.Mesh>(null);
+  useFrame(() => {
+    if (meshRef.current) meshRef.current.position.copy(positionRef.current);
+  });
+  return (
+    <mesh ref={meshRef} onClick={onClick}>
+      <sphereGeometry args={[0.025, 8, 8]} />
+      <meshBasicMaterial color={color} />
+    </mesh>
+  );
 }
 
-/* ------------------------------------------------------------------
-   Camera controller
-   ------------------------------------------------------------------ */
+/* ===================================================================
+   Spacecraft trackers — handle orbital math and update positionRef
+   =================================================================== */
+function ISSTracker({
+  positionRef,
+  onClick,
+}: {
+  positionRef: React.MutableRefObject<THREE.Vector3>;
+  onClick?: () => void;
+}) {
+  useFrame(() => {
+    const now = new Date();
+    const result = propagate(satrec, now);
+    if (!result?.position || typeof result.position === "boolean") return;
+    const pos = result.position as { x: number; y: number; z: number };
+    const gmst = gstime(now);
+    const cosG = Math.cos(gmst);
+    const sinG = Math.sin(gmst);
+    // ECI → ECEF → Three.js (Y-up)
+    const xEcef =  pos.x * cosG + pos.y * sinG;
+    const yEcef = -pos.x * sinG + pos.y * cosG;
+    const zEcef =  pos.z;
+    positionRef.current.set(xEcef * SCENE_SCALE, zEcef * SCENE_SCALE, -yEcef * SCENE_SCALE);
+  });
+  return <SpacecraftDot color="#66ffaa" positionRef={positionRef} onClick={onClick} />;
+}
+
+function ArtemisTracker({
+  positionRef,
+  onClick,
+  playing,
+}: {
+  positionRef: React.MutableRefObject<THREE.Vector3>;
+  onClick?: () => void;
+  playing: boolean;
+}) {
+  const angleRef = useRef(0);
+  useFrame((_, delta) => {
+    if (playing) angleRef.current += delta * (2 * Math.PI / ARTEMIS_PERIOD) * ARTEMIS_SPEED;
+    const a = angleRef.current;
+    positionRef.current.set(
+      Math.cos(a) * ARTEMIS_ORBIT_R,
+      Math.sin(a) * ARTEMIS_ORBIT_R * Math.sin(ARTEMIS_INCL),
+      Math.sin(a) * ARTEMIS_ORBIT_R * Math.cos(ARTEMIS_INCL),
+    );
+  });
+  return <SpacecraftDot color="#FF6B00" positionRef={positionRef} onClick={onClick} />;
+}
+
+function StarshipTracker({
+  positionRef,
+  onClick,
+  playing,
+}: {
+  positionRef: React.MutableRefObject<THREE.Vector3>;
+  onClick?: () => void;
+  playing: boolean;
+}) {
+  const angleRef = useRef(Math.PI * 0.7);
+  useFrame((_, delta) => {
+    if (playing) angleRef.current += delta * 0.35;
+    const a = angleRef.current;
+    positionRef.current.set(
+      Math.cos(a) * STARSHIP_ORBIT_R,
+      Math.sin(a) * STARSHIP_ORBIT_R * Math.sin(STARSHIP_INCL),
+      Math.sin(a) * STARSHIP_ORBIT_R * Math.cos(STARSHIP_INCL),
+    );
+  });
+  return <SpacecraftDot color="#88bbff" positionRef={positionRef} onClick={onClick} />;
+}
+
+function StarlinkTracker({
+  positionRef,
+  onClick,
+  playing,
+}: {
+  positionRef: React.MutableRefObject<THREE.Vector3>;
+  onClick?: () => void;
+  playing: boolean;
+}) {
+  const angleRef = useRef(Math.PI * 1.4);
+  useFrame((_, delta) => {
+    if (playing) angleRef.current += delta * 0.42;
+    const a = angleRef.current;
+    positionRef.current.set(
+      Math.cos(a) * STARLINK_ORBIT_R,
+      Math.sin(a) * STARLINK_ORBIT_R * Math.sin(STARLINK_INCL),
+      Math.sin(a) * STARLINK_ORBIT_R * Math.cos(STARLINK_INCL),
+    );
+  });
+  return <SpacecraftDot color="#cc88ff" positionRef={positionRef} onClick={onClick} />;
+}
+
+/* ===================================================================
+   Orbit path lines
+   =================================================================== */
+function CircularOrbitPath({
+  radius,
+  color,
+  inclination = 0,
+  opacity = 0.4,
+}: {
+  radius: number;
+  color: string;
+  inclination?: number;
+  opacity?: number;
+}) {
+  const line = useMemo(() => {
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 200; i++) {
+      const t = (i / 200) * Math.PI * 2;
+      pts.push(new THREE.Vector3(
+        Math.cos(t) * radius,
+        Math.sin(t) * Math.sin(inclination) * radius,
+        Math.sin(t) * Math.cos(inclination) * radius,
+      ));
+    }
+    return new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthWrite: false }),
+    );
+  }, [radius, inclination, color, opacity]);
+  return <primitive object={line} />;
+}
+
+function ArtemisOrbitPath() {
+  const line = useMemo(() => {
+    const rPeri = ARTEMIS_ORBIT_R;
+    const rApo  = 18.3;
+    const a = (rPeri + rApo) / 2;
+    const c = a - rPeri;
+    const b = Math.sqrt(a * a - c * c);
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= 300; i++) {
+      const theta = (i / 300) * Math.PI * 2;
+      const x = c + a * Math.cos(theta);
+      const z = b * Math.sin(theta);
+      pts.push(new THREE.Vector3(x, -z * Math.sin(ARTEMIS_INCL), z * Math.cos(ARTEMIS_INCL)));
+    }
+    return new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: "#FF6B00", transparent: true, opacity: 0.4, depthWrite: false }),
+    );
+  }, []);
+  return <primitive object={line} />;
+}
+
+/* ===================================================================
+   Camera controller — one-time smooth transition per target change.
+   No continuous following. User drives the camera after each jump.
+   =================================================================== */
 function CameraController({
   target,
-  moonPosRef,
-  issPosRef,
-  artemisPosRef,
-  starshipPosRef,
-  starlinkPosRef,
+  posRefs,
 }: {
   target: TrackTarget;
-  moonPosRef: React.MutableRefObject<THREE.Vector3>;
-  issPosRef: React.MutableRefObject<THREE.Vector3>;
-  artemisPosRef: React.MutableRefObject<THREE.Vector3>;
-  starshipPosRef: React.MutableRefObject<THREE.Vector3>;
-  starlinkPosRef: React.MutableRefObject<THREE.Vector3>;
+  posRefs: {
+    moon: React.MutableRefObject<THREE.Vector3>;
+    iss: React.MutableRefObject<THREE.Vector3>;
+    artemis: React.MutableRefObject<THREE.Vector3>;
+    starship: React.MutableRefObject<THREE.Vector3>;
+    starlink: React.MutableRefObject<THREE.Vector3>;
+  };
 }) {
-  const { camera } = useThree();
-  const controlsRef = useRef<any>(null);
-  const isTransitioning = useRef(false);
-  const prevTarget = useRef<TrackTarget>("overview");
-  const transitionProgress = useRef(0);
+  const controlsRef   = useRef<any>(null);
+  const prevTarget    = useRef<TrackTarget>("overview");
+  const transitioning = useRef(false);
+  const tProg         = useRef(0);
+  const startCam      = useRef(new THREE.Vector3());
+  const startLook     = useRef(new THREE.Vector3());
+  const endCam        = useRef(new THREE.Vector3());
+  const endLook       = useRef(new THREE.Vector3());
 
-  const getTargetPosition = useCallback(
-    (t: TrackTarget): THREE.Vector3 => {
-      switch (t) {
-        case "iss":      return issPosRef.current.clone();
-        case "moon":     return moonPosRef.current.clone();
-        case "artemis":  return artemisPosRef.current.clone();
-        case "starship": return starshipPosRef.current.clone();
-        case "starlink": return starlinkPosRef.current.clone();
-        case "sun":      return SUN_POSITION.clone();
-        default:         return new THREE.Vector3(0, 0, 0);
-      }
-    },
-    [moonPosRef, issPosRef, artemisPosRef, starshipPosRef, starlinkPosRef],
-  );
+  function getObjPos(t: TrackTarget): THREE.Vector3 {
+    switch (t) {
+      case "iss":      return posRefs.iss.current.clone();
+      case "moon":     return posRefs.moon.current.clone();
+      case "artemis":  return posRefs.artemis.current.clone();
+      case "starship": return posRefs.starship.current.clone();
+      case "starlink": return posRefs.starlink.current.clone();
+      case "sun":      return SUN_POSITION.clone();
+      case "earth":    return new THREE.Vector3(0, 0, 0);
+      default:         return new THREE.Vector3(0, 0, 0);
+    }
+  }
 
-  useFrame((_, dt) => {
+  function getOffset(t: TrackTarget): THREE.Vector3 {
+    switch (t) {
+      case "earth":                            return new THREE.Vector3(0, 1, 5);
+      case "moon":                             return new THREE.Vector3(0, 0.5, 2);
+      case "sun":                              return new THREE.Vector3(-30, 10, 20);
+      case "iss": case "artemis":
+      case "starship": case "starlink":        return new THREE.Vector3(0.2, 0.1, 0.4);
+      default:                                 return new THREE.Vector3(0, 3, 8);
+    }
+  }
+
+  useFrame((state, dt) => {
     if (!controlsRef.current) return;
 
     if (target !== prevTarget.current) {
-      isTransitioning.current = true;
-      transitionProgress.current = 0;
       prevTarget.current = target;
+      transitioning.current = true;
+      tProg.current = 0;
+      startCam.current.copy(state.camera.position);
+      startLook.current.copy(controlsRef.current.target);
+      const objPos = getObjPos(target);
+      endLook.current.copy(objPos);
+      endCam.current.copy(objPos.clone().add(getOffset(target)));
     }
 
-    const objPos = getTargetPosition(target);
-    const config = getTargetConfig(target);
-
-    if (isTransitioning.current) {
-      transitionProgress.current = Math.min(transitionProgress.current + dt * 1.5, 1);
-      const t = 1 - Math.pow(1 - transitionProgress.current, 3);
-
-      controlsRef.current.target.lerp(objPos, t * 0.05);
-      const desiredCamPos = objPos.clone().add(config.offset);
-      camera.position.lerp(desiredCamPos, t * 0.05);
-
-      if (transitionProgress.current >= 1) {
-        isTransitioning.current = false;
+    if (transitioning.current) {
+      tProg.current = Math.min(tProg.current + dt * 1.0, 1);
+      const ease = 1 - Math.pow(1 - tProg.current, 3); // cubic ease-out
+      state.camera.position.lerpVectors(startCam.current, endCam.current, ease);
+      controlsRef.current.target.lerpVectors(startLook.current, endLook.current, ease);
+      if (tProg.current >= 1) {
+        transitioning.current = false;
+        // Sync controls after transition completes
+        controlsRef.current.target.copy(endLook.current);
+        state.camera.position.copy(endCam.current);
       }
-    } else if (MOVING_TARGETS.has(target)) {
-      controlsRef.current.target.lerp(objPos, 0.05);
-      const camDir = camera.position.clone().sub(controlsRef.current.target).normalize();
-      const desiredPos = objPos.clone().add(camDir.multiplyScalar(config.distance));
-      camera.position.lerp(desiredPos, 0.05);
     }
 
     controlsRef.current.update();
@@ -123,489 +302,21 @@ function CameraController({
   return (
     <OrbitControls
       ref={controlsRef}
-      enablePan={true}
-      enableZoom={true}
-      enableRotate={true}
-      zoomSpeed={0.5}
-      rotateSpeed={0.3}
-      panSpeed={0.3}
-      minDistance={2.5}
-      maxDistance={50}
       enableDamping
-      dampingFactor={0.05}
+      dampingFactor={0.04}
+      rotateSpeed={0.25}
+      zoomSpeed={0.4}
+      autoRotate={false}
+      enablePan={false}
+      minDistance={3}
+      maxDistance={30}
     />
   );
 }
 
-/* ------------------------------------------------------------------
-   Artemis elliptical orbit path
-   ------------------------------------------------------------------ */
-function ArtemisOrbitPath() {
-  const geometry = useMemo(() => {
-    // Perigee: ~2.12 scene units (370 km altitude, Earth radius = 2)
-    // Apogee: ~18.3 scene units (visually toward Moon at ~16.7)
-    const rPeri = 2.12;
-    const rApo = 18.3;
-    const a = (rPeri + rApo) / 2; // semi-major axis
-    const c = a - rPeri;           // center-to-focus (Earth is at origin/focus)
-    const b = Math.sqrt(a * a - c * c); // semi-minor axis
-    const centerX = c;             // ellipse center offset from Earth along +X
-
-    const INCLINATION = 28.5 * (Math.PI / 180);
-    const pts: THREE.Vector3[] = [];
-    const N = 300;
-    for (let i = 0; i <= N; i++) {
-      const theta = (i / N) * Math.PI * 2;
-      const x2 = centerX + a * Math.cos(theta);
-      const z2 = b * Math.sin(theta);
-      // Apply inclination around X-axis so orbit is tilted 28.5°
-      const x3 = x2;
-      const y3 = -z2 * Math.sin(INCLINATION);
-      const z3 = z2 * Math.cos(INCLINATION);
-      pts.push(new THREE.Vector3(x3, y3, z3));
-    }
-
-    return new THREE.BufferGeometry().setFromPoints(pts);
-  }, []);
-
-  const lineObj = useMemo(() => {
-    const mat = new THREE.LineBasicMaterial({
-      color: "#FF6B00",
-      transparent: true,
-      opacity: 0.35,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    return new THREE.Line(geometry, mat);
-  }, [geometry]);
-
-  return <primitive object={lineObj} />;
-}
-
-/* ------------------------------------------------------------------
-   Circular orbit paths (ISS, Starship, Starlink)
-   ------------------------------------------------------------------ */
-function CircularOrbitPath({
-  radius,
-  color,
-  inclination = 0,
-  opacity = 0.2,
-}: {
-  radius: number;
-  color: string;
-  inclination?: number;
-  opacity?: number;
-}) {
-  const lineObj = useMemo(() => {
-    const pts: THREE.Vector3[] = [];
-    const N = 200;
-    for (let i = 0; i <= N; i++) {
-      const theta = (i / N) * Math.PI * 2;
-      const x = Math.cos(theta) * radius;
-      const y = Math.sin(theta) * Math.sin(inclination) * radius;
-      const z = Math.sin(theta) * Math.cos(inclination) * radius;
-      pts.push(new THREE.Vector3(x, y, z));
-    }
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const mat = new THREE.LineBasicMaterial({
-      color,
-      transparent: true,
-      opacity,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
-    return new THREE.Line(geo, mat);
-  }, [radius, inclination, color, opacity]);
-
-  return <primitive object={lineObj} />;
-}
-
-/* ------------------------------------------------------------------
-   Starship HLS-1 marker (simple model, orbiting)
-   ------------------------------------------------------------------ */
-const STARSHIP_ORBIT_R = 2.11; // ~250 km altitude (Earth radius = 2)
-const STARSHIP_INCL = 51.6 * (Math.PI / 180);
-
-function StarshipHLS({
-  positionRef,
-  onClick,
-  playing,
-}: {
-  positionRef: React.MutableRefObject<THREE.Vector3>;
-  onClick?: () => void;
-  playing: boolean;
-}) {
-  const groupRef = useRef<THREE.Group>(null);
-  const angleRef = useRef(Math.PI * 0.7);
-
-  const mat = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: "#88bbff", roughness: 0.3, metalness: 0.8 }),
-    [],
-  );
-
-  useFrame((_, delta) => {
-    if (!groupRef.current) return;
-    if (playing) angleRef.current += delta * 0.35;
-
-    const a = angleRef.current;
-    const x = Math.cos(a) * STARSHIP_ORBIT_R;
-    const y = Math.sin(a) * STARSHIP_ORBIT_R * Math.sin(STARSHIP_INCL);
-    const z = Math.sin(a) * STARSHIP_ORBIT_R * Math.cos(STARSHIP_INCL);
-    groupRef.current.position.set(x, y, z);
-    positionRef.current.set(x, y, z);
-  });
-
-  const S = 0.00067;
-  return (
-    <group ref={groupRef} onClick={onClick} scale={[S, S, S]}>
-      {/* Starship body */}
-      <mesh position={[0, 30, 0]} material={mat}>
-        <cylinderGeometry args={[4.5, 4.5, 50, 16]} />
-      </mesh>
-      {/* Nose cone */}
-      <mesh position={[0, 58, 0]} material={mat}>
-        <coneGeometry args={[4.5, 16, 16]} />
-      </mesh>
-      {/* Fins */}
-      {[0, 90, 180, 270].map((deg, i) => (
-        <mesh
-          key={i}
-          position={[Math.cos((deg * Math.PI) / 180) * 5, 5, Math.sin((deg * Math.PI) / 180) * 5]}
-          rotation={[0, (deg * Math.PI) / 180, 0]}
-          material={mat}
-        >
-          <boxGeometry args={[1, 16, 8]} />
-        </mesh>
-      ))}
-      <pointLight color="#88bbff" intensity={0.2} distance={60} decay={2} />
-    </group>
-  );
-}
-
-/* ------------------------------------------------------------------
-   Starlink-6548 marker
-   ------------------------------------------------------------------ */
-const STARLINK_ORBIT_R = 2.117; // ~550 km altitude (Earth radius = 2)
-const STARLINK_INCL = 53 * (Math.PI / 180);
-
-function StarlinkSat({
-  positionRef,
-  onClick,
-  playing,
-}: {
-  positionRef: React.MutableRefObject<THREE.Vector3>;
-  onClick?: () => void;
-  playing: boolean;
-}) {
-  const groupRef = useRef<THREE.Group>(null);
-  const angleRef = useRef(Math.PI * 1.4);
-
-  const bodyMat = useMemo(
-    () => new THREE.MeshStandardMaterial({ color: "#cc88ff", roughness: 0.3, metalness: 0.8 }),
-    [],
-  );
-  const panelMat = useMemo(
-    () =>
-      new THREE.MeshStandardMaterial({
-        color: "#1a0a33",
-        roughness: 0.2,
-        metalness: 0.5,
-        emissive: "#220066",
-        emissiveIntensity: 0.3,
-      }),
-    [],
-  );
-
-  useFrame((_, delta) => {
-    if (!groupRef.current) return;
-    if (playing) angleRef.current += delta * 0.42;
-
-    const a = angleRef.current;
-    const x = Math.cos(a) * STARLINK_ORBIT_R;
-    const y = Math.sin(a) * STARLINK_ORBIT_R * Math.sin(STARLINK_INCL);
-    const z = Math.sin(a) * STARLINK_ORBIT_R * Math.cos(STARLINK_INCL);
-    groupRef.current.position.set(x, y, z);
-    positionRef.current.set(x, y, z);
-  });
-
-  const S = 0.0006;
-  return (
-    <group ref={groupRef} onClick={onClick} scale={[S, S, S]}>
-      {/* Body */}
-      <mesh material={bodyMat}>
-        <boxGeometry args={[4, 2, 8]} />
-      </mesh>
-      {/* Solar panels */}
-      <mesh position={[18, 0, 0]} material={panelMat}>
-        <boxGeometry args={[30, 0.3, 6]} />
-      </mesh>
-      <mesh position={[-18, 0, 0]} material={panelMat}>
-        <boxGeometry args={[30, 0.3, 6]} />
-      </mesh>
-      <pointLight color="#cc88ff" intensity={0.15} distance={50} decay={2} />
-    </group>
-  );
-}
-
-/* ------------------------------------------------------------------
-   Neon orbit tracers (decorative background rings)
-   ------------------------------------------------------------------ */
-const decorOrbits = [
-  { radius: 2.73, tilt: 0.4, rot: 0.2, color: "#00ffff" },
-  { radius: 3.17, tilt: 0.85, rot: 1.1, color: "#ff00ff" },
-  { radius: 2.6, tilt: 0.15, rot: 2.8, color: "#00ff88" },
-  { radius: 3.5, tilt: 1.2, rot: 0.6, color: "#4488ff" },
-];
-
-function OrbitTracers() {
-  const groupRef = useRef<THREE.Group>(null);
-  useFrame((_, dt) => {
-    if (groupRef.current) groupRef.current.rotation.y += dt * 0.015;
-  });
-
-  return (
-    <group ref={groupRef}>
-      {decorOrbits.map((o, i) => (
-        <group key={i}>
-          <mesh rotation={[Math.PI / 2 + o.tilt, 0, o.rot]}>
-            <torusGeometry args={[o.radius, 0.012, 16, 200]} />
-            <meshBasicMaterial
-              color={o.color}
-              transparent
-              opacity={0.3}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-            />
-          </mesh>
-          <mesh rotation={[Math.PI / 2 + o.tilt, 0, o.rot]}>
-            <torusGeometry args={[o.radius, 0.06, 16, 200]} />
-            <meshBasicMaterial
-              color={o.color}
-              transparent
-              opacity={0.06}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-            />
-          </mesh>
-        </group>
-      ))}
-    </group>
-  );
-}
-
-/* ------------------------------------------------------------------
-   Satellite constellation (decorative background)
-   ------------------------------------------------------------------ */
-function Satellites() {
-  const ref = useRef<THREE.InstancedMesh>(null);
-  const count = 80;
-  const dummy = useMemo(() => new THREE.Object3D(), []);
-
-  const sats = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < count; i++) {
-      arr.push({
-        radius: 2.3 + Math.random() * 1.2,
-        speed: 0.15 + Math.random() * 0.4,
-        tilt: (Math.random() - 0.5) * 1.6,
-        phase: Math.random() * Math.PI * 2,
-        rotAxis: Math.random() * Math.PI * 2,
-      });
-    }
-    return arr;
-  }, []);
-
-  useFrame((state) => {
-    if (!ref.current) return;
-    const t = state.clock.elapsedTime;
-    sats.forEach((s, i) => {
-      const angle = t * s.speed + s.phase;
-      const x = Math.cos(angle) * s.radius;
-      const z = Math.sin(angle) * s.radius;
-      const y = Math.sin(angle + s.rotAxis) * Math.sin(s.tilt) * s.radius * 0.3;
-      dummy.position.set(x, y, z);
-      dummy.scale.setScalar(0.04);
-      dummy.updateMatrix();
-      ref.current!.setMatrixAt(i, dummy.matrix);
-    });
-    ref.current.instanceMatrix.needsUpdate = true;
-  });
-
-  return (
-    <instancedMesh ref={ref} args={[undefined, undefined, count]}>
-      <sphereGeometry args={[1, 6, 6]} />
-      <meshBasicMaterial
-        color="#88ffff"
-        transparent
-        opacity={0.5}
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-      />
-    </instancedMesh>
-  );
-}
-
-/* ------------------------------------------------------------------
-   Shooting stars
-   ------------------------------------------------------------------ */
-function ShootingStars() {
-  const ref = useRef<THREE.Group>(null);
-  const stars = useMemo(() => {
-    const arr = [];
-    for (let i = 0; i < 12; i++) {
-      arr.push({
-        delay: Math.random() * 30,
-        duration: 0.5 + Math.random() * 0.8,
-        start: new THREE.Vector3(
-          (Math.random() - 0.5) * 400,
-          80 + Math.random() * 200,
-          (Math.random() - 0.5) * 400,
-        ),
-        dir: new THREE.Vector3(
-          (Math.random() - 0.5) * 2,
-          -1 - Math.random(),
-          (Math.random() - 0.5) * 2,
-        ).normalize(),
-        speed: 80 + Math.random() * 120,
-      });
-    }
-    return arr;
-  }, []);
-
-  useFrame((state) => {
-    if (!ref.current) return;
-    const t = state.clock.elapsedTime;
-    ref.current.children.forEach((child, i) => {
-      const s = stars[i];
-      const cycle = (t + s.delay) % (s.delay + s.duration + 5);
-      if (cycle < s.duration) {
-        const p = cycle / s.duration;
-        const pos = s.start.clone().add(s.dir.clone().multiplyScalar(p * s.speed));
-        child.position.copy(pos);
-        (child as THREE.Mesh).scale.setScalar(1 - p * 0.8);
-        ((child as THREE.Mesh).material as THREE.Material).opacity = (1 - p) * 0.9;
-        child.visible = true;
-      } else {
-        child.visible = false;
-      }
-    });
-  });
-
-  return (
-    <group ref={ref}>
-      {stars.map((_, i) => (
-        <mesh key={i} visible={false}>
-          <sphereGeometry args={[0.15, 4, 4]} />
-          <meshBasicMaterial
-            color="#ffffff"
-            transparent
-            opacity={0}
-            blending={THREE.AdditiveBlending}
-            depthWrite={false}
-          />
-        </mesh>
-      ))}
-    </group>
-  );
-}
-
-/* ------------------------------------------------------------------
-   Moon orbit path (decorative)
-   ------------------------------------------------------------------ */
-function MoonOrbitPath() {
-  return (
-    <mesh rotation={[Math.PI / 2, 0, 0]}>
-      <torusGeometry args={[16.7, 0.01, 8, 256]} />
-      <meshBasicMaterial
-        color="#445566"
-        transparent
-        opacity={0.1}
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-      />
-    </mesh>
-  );
-}
-
-/* ------------------------------------------------------------------
-   Object labels
-   ------------------------------------------------------------------ */
-function ObjectLabel({
-  position,
-  label,
-  onClick,
-  color = "#ffffff",
-}: {
-  position: THREE.Vector3 | [number, number, number];
-  label: string;
-  onClick?: () => void;
-  color?: string;
-}) {
-  const pos = position instanceof THREE.Vector3 ? position.toArray() : position;
-  return (
-    <Html position={[pos[0], pos[1] + 2.5, pos[2]]} center distanceFactor={15} style={{ pointerEvents: "auto" }}>
-      <button
-        onClick={onClick}
-        className="group flex flex-col items-center gap-1 cursor-pointer select-none"
-        style={{ transform: "translateY(-10px)" }}
-      >
-        <span
-          className="text-[10px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded-full backdrop-blur-sm border transition-all group-hover:scale-110"
-          style={{ color, borderColor: color + "33", backgroundColor: "#00000088" }}
-        >
-          {label}
-        </span>
-        <div className="w-0.5 h-3 rounded-full opacity-40" style={{ backgroundColor: color }} />
-      </button>
-    </Html>
-  );
-}
-
-function TrackingLabel({
-  posRef,
-  label,
-  onClick,
-  color = "#ffffff",
-  yOffset = 2.5,
-}: {
-  posRef: React.MutableRefObject<THREE.Vector3>;
-  label: string;
-  onClick?: () => void;
-  color?: string;
-  yOffset?: number;
-}) {
-  const ref = useRef<THREE.Group>(null);
-
-  useFrame(() => {
-    if (ref.current) {
-      ref.current.position.copy(posRef.current);
-    }
-  });
-
-  return (
-    <group ref={ref}>
-      <Html center distanceFactor={15} position={[0, yOffset, 0]} style={{ pointerEvents: "auto" }}>
-        <button
-          onClick={onClick}
-          className="group flex flex-col items-center gap-1 cursor-pointer select-none"
-          style={{ transform: "translateY(-10px)" }}
-        >
-          <span
-            className="text-[10px] font-bold uppercase tracking-[0.15em] px-2 py-0.5 rounded-full backdrop-blur-sm border transition-all group-hover:scale-110 whitespace-nowrap"
-            style={{ color, borderColor: color + "33", backgroundColor: "#00000088" }}
-          >
-            {label}
-          </span>
-          <div className="w-0.5 h-2 rounded-full opacity-40" style={{ backgroundColor: color }} />
-        </button>
-      </Html>
-    </group>
-  );
-}
-
-/* ==================================================================
-   Inner scene — reads mission store
-   ================================================================== */
+/* ===================================================================
+   Scene content
+   =================================================================== */
 function SceneContent({
   trackTarget,
   onTargetChange,
@@ -614,123 +325,77 @@ function SceneContent({
   onTargetChange?: (t: TrackTarget) => void;
 }) {
   const { trackedMissionId, playing } = useMissionStore();
-
   const sunDir = useMemo(() => new THREE.Vector3(1, 0, 0), []);
-  const moonPosRef = useRef(new THREE.Vector3(16.7, 0, 0));
-  const issPosRef = useRef(new THREE.Vector3(0, 2.13, 0));
-  const artemisPosRef = useRef(new THREE.Vector3(2.12, 0, 0));
-  const starshipPosRef = useRef(new THREE.Vector3(0, 2.11, 0));
-  const starlinkPosRef = useRef(new THREE.Vector3(-2.12, 0, 0));
 
-  // Derive camera target from the tracked mission, but allow override via trackTarget prop
+  const moonPosRef     = useRef(new THREE.Vector3(16.7, 0, 0));
+  const issPosRef      = useRef(new THREE.Vector3(0, 2.13, 0));
+  const artemisPosRef  = useRef(new THREE.Vector3(ARTEMIS_ORBIT_R, 0, 0));
+  const starshipPosRef = useRef(new THREE.Vector3(0, STARSHIP_ORBIT_R, 0));
+  const starlinkPosRef = useRef(new THREE.Vector3(-STARLINK_ORBIT_R, 0, 0));
+
   const activeCameraTarget = useMemo((): TrackTarget => {
     if (trackTarget !== "overview") return trackTarget;
     switch (trackedMissionId) {
-      case "artemis": return "artemis";
-      case "iss": return "iss";
+      case "artemis":       return "artemis";
+      case "iss":           return "iss";
       case "starship-hls1": return "starship";
       case "starlink-6548": return "starlink";
-      default: return "overview";
+      default:              return "overview";
     }
   }, [trackTarget, trackedMissionId]);
 
-  const handleClickEarth    = useCallback(() => onTargetChange?.("earth"),   [onTargetChange]);
-  const handleClickMoon     = useCallback(() => onTargetChange?.("moon"),    [onTargetChange]);
-  const handleClickSun      = useCallback(() => onTargetChange?.("sun"),     [onTargetChange]);
-  const handleClickISS      = useCallback(() => onTargetChange?.("iss"),     [onTargetChange]);
-  const handleClickArtemis  = useCallback(() => onTargetChange?.("artemis"), [onTargetChange]);
-  const handleClickStarship = useCallback(() => onTargetChange?.("starship"),[onTargetChange]);
-  const handleClickStarlink = useCallback(() => onTargetChange?.("starlink"),[onTargetChange]);
+  const toEarth    = useCallback(() => onTargetChange?.("earth"),    [onTargetChange]);
+  const toMoon     = useCallback(() => onTargetChange?.("moon"),     [onTargetChange]);
+  const toSun      = useCallback(() => onTargetChange?.("sun"),      [onTargetChange]);
+  const toISS      = useCallback(() => onTargetChange?.("iss"),      [onTargetChange]);
+  const toArtemis  = useCallback(() => onTargetChange?.("artemis"),  [onTargetChange]);
+  const toStarship = useCallback(() => onTargetChange?.("starship"), [onTargetChange]);
+  const toStarlink = useCallback(() => onTargetChange?.("starlink"), [onTargetChange]);
 
   return (
     <>
-      <Stars radius={300} depth={60} count={3000} factor={4} saturation={0.2} />
+      {/* Stars */}
+      <Stars radius={200} depth={50} count={4000} factor={3} saturation={0} fade />
 
-      <ambientLight intensity={0.15} />
-      <directionalLight position={[15, 2, 0]} intensity={2.0} color="#fff5e6" />
-      <directionalLight position={[-8, -2, -3]} intensity={0.05} color="#334466" />
+      {/* Lighting — space is dark */}
+      <ambientLight intensity={0.1} />
+      <pointLight position={[80, 0, 0]} intensity={2.5} color="#ffffff" />
 
-      <Earth radius={2} onClick={handleClickEarth} />
+      {/* Celestial bodies */}
+      <Earth radius={2} onClick={toEarth} />
+      <Moon sunDirection={sunDir} onClick={toMoon} positionRef={moonPosRef} />
+      <Sun onClick={toSun} />
 
-      <Moon sunDirection={sunDir} onClick={handleClickMoon} positionRef={moonPosRef} />
-      <MoonOrbitPath />
+      {/* Spacecraft dots */}
+      <ISSTracker      positionRef={issPosRef}      onClick={toISS}      />
+      <ArtemisTracker  positionRef={artemisPosRef}  onClick={toArtemis}  playing={playing} />
+      <StarshipTracker positionRef={starshipPosRef} onClick={toStarship} playing={playing} />
+      <StarlinkTracker positionRef={starlinkPosRef} onClick={toStarlink} playing={playing} />
 
-      <Sun onClick={handleClickSun} />
-
-      <ISS onClick={handleClickISS} positionRef={issPosRef} />
-
-      {/* Artemis rocket */}
-      <ArtemisRocket
-        playing={playing}
-        positionRef={artemisPosRef}
-        onClick={handleClickArtemis}
-      />
-
-      {/* Starship HLS-1 */}
-      <StarshipHLS
-        positionRef={starshipPosRef}
-        onClick={handleClickStarship}
-        playing={playing}
-      />
-
-      {/* Starlink-6548 */}
-      <StarlinkSat
-        positionRef={starlinkPosRef}
-        onClick={handleClickStarlink}
-        playing={playing}
-      />
-
-      {/* Orbit paths */}
+      {/* Orbit path lines */}
       <ArtemisOrbitPath />
-      <CircularOrbitPath
-        radius={2.128}
-        color="#66ffaa"
-        inclination={51.6 * (Math.PI / 180)}
-        opacity={0.18}
-      />
-      <CircularOrbitPath
-        radius={STARSHIP_ORBIT_R}
-        color="#88bbff"
-        inclination={STARSHIP_INCL}
-        opacity={0.15}
-      />
-      <CircularOrbitPath
-        radius={STARLINK_ORBIT_R}
-        color="#cc88ff"
-        inclination={STARLINK_INCL}
-        opacity={0.15}
-      />
+      <CircularOrbitPath radius={ARTEMIS_ORBIT_R}  color="#66ffaa" inclination={51.6 * Math.PI / 180} />
+      <CircularOrbitPath radius={STARSHIP_ORBIT_R} color="#88bbff" inclination={STARSHIP_INCL} />
+      <CircularOrbitPath radius={STARLINK_ORBIT_R} color="#cc88ff" inclination={STARLINK_INCL} />
 
-      <OrbitTracers />
-      <Satellites />
-      <ShootingStars />
-
-      {/* Static labels */}
-      <ObjectLabel position={[0, 2.2, 0]} label="Earth" onClick={handleClickEarth} color="#44aaff" />
-      <ObjectLabel position={SUN_POSITION.toArray()} label="Sun" onClick={handleClickSun} color="#ffaa33" />
-
-      {/* Tracking labels */}
-      <TrackingLabel posRef={moonPosRef} label="Moon" onClick={handleClickMoon} color="#aaaacc" yOffset={1} />
-      <TrackingLabel posRef={issPosRef} label="ISS" onClick={handleClickISS} color="#66ffaa" yOffset={0.25} />
-      <TrackingLabel posRef={artemisPosRef} label="Artemis I" onClick={handleClickArtemis} color="#FF6B00" yOffset={0.15} />
-      <TrackingLabel posRef={starshipPosRef} label="Starship HLS" onClick={handleClickStarship} color="#88bbff" yOffset={0.15} />
-      <TrackingLabel posRef={starlinkPosRef} label="Starlink-6548" onClick={handleClickStarlink} color="#cc88ff" yOffset={0.12} />
-
+      {/* Camera */}
       <CameraController
         target={activeCameraTarget}
-        moonPosRef={moonPosRef}
-        issPosRef={issPosRef}
-        artemisPosRef={artemisPosRef}
-        starshipPosRef={starshipPosRef}
-        starlinkPosRef={starlinkPosRef}
+        posRefs={{
+          moon:     moonPosRef,
+          iss:      issPosRef,
+          artemis:  artemisPosRef,
+          starship: starshipPosRef,
+          starlink: starlinkPosRef,
+        }}
       />
     </>
   );
 }
 
-/* ==================================================================
+/* ===================================================================
    Main export
-   ================================================================== */
+   =================================================================== */
 type Props = {
   trackTarget?: TrackTarget;
   onTargetChange?: (t: TrackTarget) => void;
@@ -742,24 +407,13 @@ export default function MissionControlScene({
 }: Props) {
   return (
     <Canvas
-      camera={{ position: [0, 3, 8], fov: 45, near: 0.01, far: 3000 }}
-      style={{ width: "100%", height: "100%" }}
-      gl={{
-        antialias: true,
-        toneMapping: THREE.ACESFilmicToneMapping,
-        toneMappingExposure: 1.0,
-        powerPreference: "high-performance",
-      }}
+      camera={{ position: [0, 3, 8], fov: 45, near: 0.001, far: 10000 }}
+      style={{ width: "100%", height: "100%", background: "#000000" }}
+      gl={{ antialias: true }}
       frameloop="always"
     >
-      <color attach="background" args={['#000000']} />
-      <SceneContent
-        trackTarget={trackTarget}
-        onTargetChange={onTargetChange}
-      />
+      <color attach="background" args={["#000000"]} />
+      <SceneContent trackTarget={trackTarget} onTargetChange={onTargetChange} />
     </Canvas>
   );
 }
-
-// Export constants for use by other components
-export { STARSHIP_ORBIT_R, STARSHIP_INCL, STARLINK_ORBIT_R, STARLINK_INCL };
