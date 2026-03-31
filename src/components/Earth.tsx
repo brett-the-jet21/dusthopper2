@@ -69,14 +69,14 @@ function EarthInner({ radius, onClick, showKSC }: { radius: number; onClick?: ()
   const outerGroupRef = useRef<THREE.Group>(null);
   const cloudDrift    = useRef(0);
 
-  const [colorMap, cloudsMap, specMap] = useLoader(TextureLoader, [
-    "https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg",
-    "https://unpkg.com/three-globe/example/img/earth-clouds.png",
-    "https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/planets/earth_specular_2048.jpg",
+  // Use jsdelivr (extremely reliable CDN) — 2 textures only, no specular needed
+  const [colorMap, cloudsMap] = useLoader(TextureLoader, [
+    "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-blue-marble.jpg",
+    "https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-clouds.png",
   ]);
 
   useMemo(() => {
-    [colorMap, cloudsMap, specMap].forEach((t) => {
+    [colorMap, cloudsMap].forEach((t) => {
       t.anisotropy = 8;
       t.minFilter = THREE.LinearMipmapLinearFilter;
       t.magFilter = THREE.LinearFilter;
@@ -84,9 +84,9 @@ function EarthInner({ radius, onClick, showKSC }: { radius: number; onClick?: ()
     });
     colorMap.colorSpace  = THREE.SRGBColorSpace;
     cloudsMap.colorSpace = THREE.SRGBColorSpace;
-  }, [colorMap, cloudsMap, specMap]);
+  }, [colorMap, cloudsMap]);
 
-  const specularColor = useMemo(() => new THREE.Color(0x226699), []);
+  const specularColor = useMemo(() => new THREE.Color(0x3377aa), []);
   const emissiveColor = useMemo(() => new THREE.Color("#1133cc"), []);
 
   useFrame((_, dt) => {
@@ -114,9 +114,8 @@ function EarthInner({ radius, onClick, showKSC }: { radius: number; onClick?: ()
             <sphereGeometry args={[radius, 128, 128]} />
             <meshPhongMaterial
               map={colorMap}
-              specularMap={specMap}
               specular={specularColor}
-              shininess={25}
+              shininess={18}
             />
           </mesh>
 

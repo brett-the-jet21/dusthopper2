@@ -1,8 +1,11 @@
 "use client";
 
 import { useRef, useMemo, useCallback, Component, ReactNode } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
+import { Line2 } from "three-stdlib";
+import { LineMaterial } from "three-stdlib";
+import { LineGeometry } from "three-stdlib";
 import * as THREE from "three";
 import Earth from "./Earth";
 import Moon from "./Moon";
@@ -68,12 +71,12 @@ export const STARLINK_ORBIT_R = EARTH_SCENE_R + (550  / EARTH_KM) * EARTH_SCENE_
 export const STARLINK_INCL    = 53    * (Math.PI / 180);
 const STARLINK_ANG_VEL        = (2 * Math.PI) / (95.6  * 60);
 
-/* Per-mission neon colors */
+/* Per-mission neon colors — maximum saturation */
 const COLORS = {
-  artemis: "#FF6B00",
-  iss:     "#00ff88",
-  starship:"#cc44ff",
-  starlink:"#4488ff",
+  artemis: "#FF8800",
+  iss:     "#00FFCC",
+  starship:"#EE22FF",
+  starlink:"#22AAFF",
 } as const;
 
 /* ===================================================================
@@ -181,7 +184,7 @@ function CircularTracker({
 }
 
 /* ===================================================================
-   Neon glow orbit path — two overlapping lines: bright core + additive glow
+   Neon orbit path — Line2 (screen-space thickness) + additive glow halo
    =================================================================== */
 function GlowOrbitPath({
   radius,
@@ -192,70 +195,104 @@ function GlowOrbitPath({
   color: string;
   inclination?: number;
 }) {
-  const { core, glow } = useMemo(() => {
+  const matRef = useRef<LineMaterial | null>(null);
+  const { gl } = useThree();
+
+  const { line2, halo } = useMemo(() => {
+    const flat: number[] = [];
     const pts: THREE.Vector3[] = [];
-    for (let i = 0; i <= 360; i++) {
+    for (let i = 0; i <= 361; i++) {
       const t = (i / 360) * Math.PI * 2;
-      pts.push(new THREE.Vector3(
-        Math.cos(t) * radius,
-        Math.sin(t) * Math.sin(inclination) * radius,
-        Math.sin(t) * Math.cos(inclination) * radius,
-      ));
+      const x = Math.cos(t) * radius;
+      const y = Math.sin(t) * Math.sin(inclination) * radius;
+      const z = Math.sin(t) * Math.cos(inclination) * radius;
+      flat.push(x, y, z);
+      if (i < 361) pts.push(new THREE.Vector3(x, y, z));
     }
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    return {
-      core: new THREE.Line(geo, new THREE.LineBasicMaterial({
-        color, transparent: true, opacity: 1.0, depthWrite: false,
-      })),
-      glow: new THREE.Line(geo, new THREE.LineBasicMaterial({
-        color, transparent: true, opacity: 0.18,
-        blending: THREE.AdditiveBlending, depthWrite: false,
-      })),
-    };
-  }, [radius, inclination, color]);
+
+    // Thick core via Line2
+    const geo = new LineGeometry();
+    geo.setPositions(flat);
+    const mat = new LineMaterial({
+      color: new THREE.Color(color).getHex(),
+      linewidth: 3,
+      transparent: true,
+      opacity: 1.0,
+      depthWrite: false,
+      resolution: new THREE.Vector2(gl.domElement.width, gl.domElement.height),
+    });
+    matRef.current = mat;
+    const l = new Line2(geo, mat);
+    l.computeLineDistances();
+
+    // Wide additive halo using standard Line
+    const haloGeo = new THREE.BufferGeometry().setFromPoints(pts);
+    const halo = new THREE.Line(haloGeo, new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.35,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    }));
+
+    return { line2: l, halo };
+  }, [radius, inclination, color, gl]);
+
+  useFrame(({ size }) => {
+    matRef.current?.resolution.set(size.width * gl.getPixelRatio(), size.height * gl.getPixelRatio());
+  });
 
   return (
     <>
-      <primitive object={core} />
-      <primitive object={glow} />
+      <primitive object={halo} />
+      <primitive object={line2} />
     </>
   );
 }
 
 /* ===================================================================
-   Artemis II pre-launch dashed orbit path — animated "marching ants"
-   Shows the planned 185 km circular parking orbit at KSC inclination
+   Artemis II pre-launch dashed orbit path — Line2 thick dashes + marching ants
    =================================================================== */
 function ArtemisIIPreLaunchPath() {
-  const matRef = useRef<THREE.LineDashedMaterial | null>(null);
+  const matRef = useRef<LineMaterial | null>(null);
+  const { gl } = useThree();
 
   const line = useMemo(() => {
-    const pts: THREE.Vector3[] = [];
-    for (let i = 0; i <= 360; i++) {
+    const flat: number[] = [];
+    for (let i = 0; i <= 361; i++) {
       const theta = (i / 360) * Math.PI * 2;
-      const x = Math.cos(theta) * ARTEMIS_II_ORBIT_R;
-      const y = Math.sin(theta) * Math.sin(ARTEMIS_II_INCL) * ARTEMIS_II_ORBIT_R;
-      const z = Math.sin(theta) * Math.cos(ARTEMIS_II_INCL) * ARTEMIS_II_ORBIT_R;
-      pts.push(new THREE.Vector3(x, y, z));
+      flat.push(
+        Math.cos(theta) * ARTEMIS_II_ORBIT_R,
+        Math.sin(theta) * Math.sin(ARTEMIS_II_INCL) * ARTEMIS_II_ORBIT_R,
+        Math.sin(theta) * Math.cos(ARTEMIS_II_INCL) * ARTEMIS_II_ORBIT_R,
+      );
     }
-    const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    const mat = new THREE.LineDashedMaterial({
-      color: COLORS.artemis,
-      dashSize: 0.12,
-      gapSize: 0.08,
+    const geo = new LineGeometry();
+    geo.setPositions(flat);
+    const mat = new LineMaterial({
+      color: new THREE.Color(COLORS.artemis).getHex(),
+      linewidth: 2.5,
+      dashed: true,
+      dashSize: 0.10,
+      gapSize: 0.07,
+      dashOffset: 0,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.9,
       depthWrite: false,
+      resolution: new THREE.Vector2(gl.domElement.width, gl.domElement.height),
     });
     matRef.current = mat;
-    const l = new THREE.Line(geo, mat);
+    const l = new Line2(geo, mat);
     l.computeLineDistances();
     return l;
-  }, []);
+  }, [gl]);
 
   useFrame((_, dt) => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (matRef.current) (matRef.current as any).dashOffset -= dt * 0.18;
+    if (matRef.current) (matRef.current as any).dashOffset -= dt * 0.22;
+    matRef.current?.resolution.set(
+      gl.domElement.width * gl.getPixelRatio(),
+      gl.domElement.height * gl.getPixelRatio(),
+    );
   });
 
   return <primitive object={line} />;
