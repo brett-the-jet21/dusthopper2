@@ -65,15 +65,15 @@ type MissionStore = {
 const MISSIONS_LIST: MissionData[] = [
   {
     id: 'artemis',
-    name: 'Artemis I — SLS/Orion',
+    name: 'Artemis II — SLS/Orion',
     agency: 'NASA',
-    status: 'active',
-    launchDate: new Date('2022-11-16').getTime(),
+    status: 'planned',
+    launchDate: new Date('2026-04-01T22:24:00Z').getTime(),
     telemetry: {
-      position: [6.35, 0, 0],
-      velocity: [0, 10.4, 0],
-      altitude: 370,
-      speed: 10.4,
+      position: [0, 0, 0],   // on pad at KSC pre-launch
+      velocity: [0, 0, 0],
+      altitude: 0,
+      speed: 0,
     },
     events: [],
     colorScheme: {
@@ -82,12 +82,15 @@ const MISSIONS_LIST: MissionData[] = [
       trail: '#FF6B0060',
     },
     extra: {
-      phase: 'Trans-Lunar Injection',
-      apogee: 384400,
-      perigee: 370,
+      phase: 'Pre-Launch',
+      vehicle: 'SLS Block 1 + Orion',
+      launchSite: 'LC-39B, KSC',
       inclination: 28.5,
-      period: 91.5,
-      missionPhase: 'TLI → Lunar Flyby → DRO → Return',
+      parkingOrbit: 185,
+      trajectory: 'Free-return lunar flyby',
+      crew: 'Reid Wiseman, Victor Glover, Christina Koch, Jeremy Hansen',
+      crewCount: 4,
+      missionDuration: '10 days',
     },
   },
   {

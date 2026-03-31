@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import type { TrackTarget } from "@/components/MissionControlScene";
 import { MissionSelector } from "@/components/hud/MissionSelector";
@@ -52,9 +52,7 @@ export default function Home() {
             Mission Control
           </h1>
         </div>
-        <p className="text-[9px] sm:text-[10px] text-white/30 mt-0.5 ml-5 sm:ml-6 tracking-wider uppercase">
-          Orbital Tracking System
-        </p>
+        <TminusCountdown />
       </header>
 
       {/* ── Command Center HUD (top-center) ────────────────────────── */}
@@ -68,6 +66,60 @@ export default function Home() {
 
       {/* ── Mission selector (bottom-center) ─────────────────────── */}
       <MissionSelector />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   Artemis II T-minus countdown
+   ------------------------------------------------------------------ */
+const ARTEMIS_II_LAUNCH = new Date("2026-04-01T22:24:00Z").getTime();
+
+function TminusCountdown() {
+  const [parts, setParts] = useState({ d: 0, h: 0, m: 0, s: 0, launched: false });
+
+  useEffect(() => {
+    const tick = () => {
+      const diff = ARTEMIS_II_LAUNCH - Date.now();
+      if (diff <= 0) {
+        setParts({ d: 0, h: 0, m: 0, s: 0, launched: true });
+        return;
+      }
+      setParts({
+        d: Math.floor(diff / 86400000),
+        h: Math.floor((diff % 86400000) / 3600000),
+        m: Math.floor((diff % 3600000) / 60000),
+        s: Math.floor((diff % 60000) / 1000),
+        launched: false,
+      });
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+
+  return (
+    <div className="mt-0.5 ml-5 sm:ml-6 flex items-center gap-1.5">
+      {parts.launched ? (
+        <span className="text-[9px] sm:text-[10px] tracking-wider uppercase" style={{ color: "#FF6B00" }}>
+          ARTEMIS II — LIFTOFF
+        </span>
+      ) : (
+        <>
+          <span className="text-[9px] sm:text-[10px] text-white/30 tracking-wider uppercase">T−</span>
+          <span
+            className="text-[9px] sm:text-[11px] font-bold tracking-widest"
+            style={{ color: "#00ff88", fontFamily: "monospace" }}
+          >
+            {pad(parts.d)}:{pad(parts.h)}:{pad(parts.m)}:{pad(parts.s)}
+          </span>
+          <span className="text-[9px] sm:text-[10px] text-white/30 tracking-wider uppercase">
+            ARTEMIS II
+          </span>
+        </>
+      )}
     </div>
   );
 }

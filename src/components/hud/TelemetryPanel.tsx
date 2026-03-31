@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useMissionStore } from '@/lib/store/missionStore';
 
-/* Artemis I launch date */
-const ARTEMIS_LAUNCH_MS = new Date('2022-11-16T06:47:00Z').getTime();
+/* Artemis II launch: April 1 2026 22:24 UTC */
+const ARTEMIS_II_LAUNCH_MS = new Date('2026-04-01T22:24:00Z').getTime();
 const MOON_DIST_AVG = 384400; // km
 
 function formatMET(ms: number) {
@@ -37,9 +37,9 @@ export function TelemetryPanel() {
     if (!isArtemis) return;
     const tick = () => {
       const now = Date.now();
-      const elapsed = now - ARTEMIS_LAUNCH_MS;
-      setMet(elapsed);
-      setMissionDay(Math.floor(elapsed / 86400000) + 1);
+      const diff = ARTEMIS_II_LAUNCH_MS - now;
+      setMet(diff > 0 ? diff : 0);          // repurpose met as T-minus ms when pre-launch
+      setMissionDay(Math.floor(-diff / 86400000) + 1);
       setMoonDist(MOON_DIST_AVG + Math.sin(now / 300000) * 1800);
     };
     tick();
@@ -99,7 +99,7 @@ export function TelemetryPanel() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <ArtemisMark />
                 <span style={{ fontWeight: 700, fontSize: 12, color: '#FF6B00', letterSpacing: 0.4 }}>
-                  ARTEMIS I
+                  ARTEMIS II
                 </span>
               </div>
             ) : (
@@ -130,20 +130,21 @@ export function TelemetryPanel() {
         <div style={{ padding: '11px 14px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           {isArtemis ? (
             <>
-              <Row label="MISSION"     value="Artemis I — SLS/Orion" />
-              <Row label="PHASE"       value="Trans-Lunar Injection" bright />
+              <Row label="MISSION"    value="Artemis II — SLS/Orion" />
+              <Row label="PHASE"      value="PRE-LAUNCH" bright />
               <Sep />
-              <Row label="ALTITUDE"    value="370 km (parking orbit)" />
-              <Row label="VELOCITY"    value="10.4 km/s  |  23,265 mph" />
+              <Row label="VEHICLE"    value="SLS Block 1 + Orion" />
+              <Row label="LAUNCH SITE" value="LC-39B, KSC" />
               <Row label="INCLINATION" value="28.5°" />
               <Sep />
-              <Row label="APOGEE"      value={`${MOON_DIST_AVG.toLocaleString()} km`} bright />
-              <Row label="MOON DIST"   value={`${Math.round(moonDist).toLocaleString()} km`} bright />
+              <Row label="CREW"       value="4  (Reid Wiseman, CDR)" bright />
+              <Row label="ORBIT"      value="185 km parking orbit" />
+              <Row label="TARGET"     value="Free-return lunar flyby" />
               <Sep />
-              <Row label="MISSION DAY" value={`Day ${missionDay}`} />
-              <Row label="MET"         value={formatMET(met)} mono />
+              <Row label="T-MINUS"    value={`−${formatMET(met)}`} mono />
+              <Row label="LIFTOFF"    value="01 Apr 2026  22:24 UTC" />
               <Sep />
-              <Row label="STATUS"      value="✅  NOMINAL" green />
+              <Row label="STATUS"     value="GO FOR LAUNCH" green />
             </>
           ) : (
             <>

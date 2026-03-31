@@ -17,7 +17,7 @@ export type TrackTarget =
   | "overview" | "earth" | "moon" | "sun"
   | "iss" | "artemis" | "starship" | "starlink";
 
-const MOVING_TARGETS = new Set<TrackTarget>(["iss", "moon", "artemis", "starship", "starlink"]);
+const MOVING_TARGETS = new Set<TrackTarget>(["iss", "moon", "starship", "starlink"]);
 
 /* ===================================================================
    Scene constants — Earth radius = 2.0 scene units = 6,371 km
@@ -26,9 +26,9 @@ const EARTH_SCENE_R = 2.0;
 const EARTH_KM      = 6371;
 const SCENE_SCALE   = EARTH_SCENE_R / EARTH_KM;
 
-const ARTEMIS_ORBIT_R = EARTH_SCENE_R + (370  / EARTH_KM) * EARTH_SCENE_R; // 2.116
-const ARTEMIS_INCL    = 28.5  * (Math.PI / 180);
-const ARTEMIS_ANG_VEL = (2 * Math.PI) / (91.5  * 60); // rad/s at 1×
+// Artemis II parking orbit: 185 km altitude, 28.5° inclination (KSC launch)
+const ARTEMIS_II_ORBIT_R = EARTH_SCENE_R + (185  / EARTH_KM) * EARTH_SCENE_R; // ~2.058
+const ARTEMIS_II_INCL    = 28.5  * (Math.PI / 180);
 
 export const STARSHIP_ORBIT_R = EARTH_SCENE_R + (250  / EARTH_KM) * EARTH_SCENE_R; // 2.079
 export const STARSHIP_INCL    = 51.6  * (Math.PI / 180);
@@ -196,40 +196,41 @@ function GlowOrbitPath({
 }
 
 /* ===================================================================
-   Artemis elliptical orbit path (neon glow)
+   Artemis II pre-launch dashed orbit path — animated "marching ants"
+   Shows the planned 185 km circular parking orbit at KSC inclination
    =================================================================== */
-function ArtemisGlowPath() {
-  const { core, glow } = useMemo(() => {
-    const rPeri = ARTEMIS_ORBIT_R;
-    const rApo  = 18.3;
-    const a = (rPeri + rApo) / 2;
-    const c = a - rPeri;
-    const b = Math.sqrt(a * a - c * c);
+function ArtemisIIPreLaunchPath() {
+  const matRef = useRef<THREE.LineDashedMaterial | null>(null);
+
+  const line = useMemo(() => {
     const pts: THREE.Vector3[] = [];
     for (let i = 0; i <= 360; i++) {
       const theta = (i / 360) * Math.PI * 2;
-      const x = c + a * Math.cos(theta);
-      const z = b * Math.sin(theta);
-      pts.push(new THREE.Vector3(x, -z * Math.sin(ARTEMIS_INCL), z * Math.cos(ARTEMIS_INCL)));
+      const x = Math.cos(theta) * ARTEMIS_II_ORBIT_R;
+      const y = Math.sin(theta) * Math.sin(ARTEMIS_II_INCL) * ARTEMIS_II_ORBIT_R;
+      const z = Math.sin(theta) * Math.cos(ARTEMIS_II_INCL) * ARTEMIS_II_ORBIT_R;
+      pts.push(new THREE.Vector3(x, y, z));
     }
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    return {
-      core: new THREE.Line(geo, new THREE.LineBasicMaterial({
-        color: COLORS.artemis, transparent: true, opacity: 1.0, depthWrite: false,
-      })),
-      glow: new THREE.Line(geo, new THREE.LineBasicMaterial({
-        color: COLORS.artemis, transparent: true, opacity: 0.18,
-        blending: THREE.AdditiveBlending, depthWrite: false,
-      })),
-    };
+    const mat = new THREE.LineDashedMaterial({
+      color: COLORS.artemis,
+      dashSize: 0.12,
+      gapSize: 0.08,
+      transparent: true,
+      opacity: 0.8,
+      depthWrite: false,
+    });
+    matRef.current = mat;
+    const l = new THREE.Line(geo, mat);
+    l.computeLineDistances();
+    return l;
   }, []);
 
-  return (
-    <>
-      <primitive object={core} />
-      <primitive object={glow} />
-    </>
-  );
+  useFrame((_, dt) => {
+    if (matRef.current) matRef.current.dashOffset -= dt * 0.18;
+  });
+
+  return <primitive object={line} />;
 }
 
 /* ===================================================================
@@ -254,7 +255,6 @@ function CameraController({
   posRefs: {
     moon:     React.MutableRefObject<THREE.Vector3>;
     iss:      React.MutableRefObject<THREE.Vector3>;
-    artemis:  React.MutableRefObject<THREE.Vector3>;
     starship: React.MutableRefObject<THREE.Vector3>;
     starlink: React.MutableRefObject<THREE.Vector3>;
   };
@@ -274,20 +274,20 @@ function CameraController({
     switch (t) {
       case "iss":      return posRefs.iss.current.clone();
       case "moon":     return posRefs.moon.current.clone();
-      case "artemis":  return posRefs.artemis.current.clone();
       case "starship": return posRefs.starship.current.clone();
       case "starlink": return posRefs.starlink.current.clone();
       case "sun":      return SUN_POSITION.clone();
-      default:         return new THREE.Vector3(0, 0, 0); // earth / overview
+      default:         return new THREE.Vector3(0, 0, 0); // earth / overview / artemis (pre-launch)
     }
   }
 
   function staticOffset(t: TrackTarget): THREE.Vector3 {
     switch (t) {
-      case "earth":    return new THREE.Vector3(0, 1, 5);
+      case "earth":    return new THREE.Vector3(0, 1.5, 6.5);
+      case "artemis":  return new THREE.Vector3(-1.5, 0.8, 4.5); // KSC-side close-up
       case "moon":     return new THREE.Vector3(0, 0.5, 2);
       case "sun":      return new THREE.Vector3(-30, 10, 20);
-      default:         return new THREE.Vector3(0, 3, 8);
+      default:         return new THREE.Vector3(0, 1.5, 6.5);
     }
   }
 
@@ -368,8 +368,10 @@ function CameraController({
       zoomSpeed={0.4}
       autoRotate={false}
       enablePan={false}
-      minDistance={3}
-      maxDistance={30}
+      minDistance={2.8}
+      maxDistance={20}
+      minPolarAngle={Math.PI * 0.1}
+      maxPolarAngle={Math.PI * 0.9}
     />
   );
 }
@@ -389,7 +391,6 @@ function SceneContent({
 
   const moonPosRef     = useRef(new THREE.Vector3(16.7, 0, 0));
   const issPosRef      = useRef(new THREE.Vector3(0, ISS_ORBIT_R, 0));
-  const artemisPosRef  = useRef(new THREE.Vector3(ARTEMIS_ORBIT_R, 0, 0));
   const starshipPosRef = useRef(new THREE.Vector3(0, STARSHIP_ORBIT_R, 0));
   const starlinkPosRef = useRef(new THREE.Vector3(-STARLINK_ORBIT_R, 0, 0));
 
@@ -408,31 +409,24 @@ function SceneContent({
   const toMoon     = useCallback(() => onTargetChange?.("moon"),     [onTargetChange]);
   const toSun      = useCallback(() => onTargetChange?.("sun"),      [onTargetChange]);
   const toISS      = useCallback(() => onTargetChange?.("iss"),      [onTargetChange]);
-  const toArtemis  = useCallback(() => onTargetChange?.("artemis"),  [onTargetChange]);
   const toStarship = useCallback(() => onTargetChange?.("starship"), [onTargetChange]);
   const toStarlink = useCallback(() => onTargetChange?.("starlink"), [onTargetChange]);
 
   return (
     <>
       {/* Environment */}
-      <Stars radius={200} depth={50} count={4000} factor={3} saturation={0} fade />
-      <ambientLight intensity={0.1} />
-      <pointLight position={[80, 0, 0]} intensity={2.5} color="#ffffff" />
+      <Stars radius={400} depth={80} count={8000} factor={2.5} saturation={0.1} fade={false} />
+      <ambientLight intensity={0.04} />
+      <directionalLight position={[80, 10, 0]} intensity={2.2} />
+      <pointLight position={[-20, 0, 0]} intensity={0.08} color="#2244ff" />
 
       {/* Celestial bodies */}
-      <Earth radius={2} onClick={toEarth} />
+      <Earth radius={2} onClick={toEarth} showKSC />
       <Moon sunDirection={sunDir} onClick={toMoon} positionRef={moonPosRef} />
       <Sun onClick={toSun} />
 
       {/* Spacecraft — real angular velocities scaled by simSpeed */}
       <ISSTracker positionRef={issPosRef} onClick={toISS} />
-      <CircularTracker
-        positionRef={artemisPosRef} onClick={toArtemis}
-        playing={playing} simSpeed={simSpeed}
-        orbitR={ARTEMIS_ORBIT_R} inclination={ARTEMIS_INCL}
-        angVel={ARTEMIS_ANG_VEL} startAngle={0}
-        color={COLORS.artemis}
-      />
       <CircularTracker
         positionRef={starshipPosRef} onClick={toStarship}
         playing={playing} simSpeed={simSpeed}
@@ -448,8 +442,10 @@ function SceneContent({
         color={COLORS.starlink}
       />
 
+      {/* Artemis II pre-launch dashed orbit path */}
+      <ArtemisIIPreLaunchPath />
+
       {/* Neon glow orbit paths */}
-      <ArtemisGlowPath />
       <GlowOrbitPath radius={ISS_ORBIT_R}      color={COLORS.iss}      inclination={ISS_INCL} />
       <GlowOrbitPath radius={STARSHIP_ORBIT_R} color={COLORS.starship} inclination={STARSHIP_INCL} />
       <GlowOrbitPath radius={STARLINK_ORBIT_R} color={COLORS.starlink} inclination={STARLINK_INCL} />
@@ -461,7 +457,6 @@ function SceneContent({
         posRefs={{
           moon:     moonPosRef,
           iss:      issPosRef,
-          artemis:  artemisPosRef,
           starship: starshipPosRef,
           starlink: starlinkPosRef,
         }}
@@ -484,7 +479,7 @@ export default function MissionControlScene({
 }: Props) {
   return (
     <Canvas
-      camera={{ position: [0, 3, 8], fov: 45, near: 0.001, far: 10000 }}
+      camera={{ position: [0, 1.5, 6.5], fov: 40, near: 0.001, far: 10000 }}
       style={{ width: "100%", height: "100%", background: "#000000" }}
       gl={{ antialias: true }}
       frameloop="always"
