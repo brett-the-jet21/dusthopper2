@@ -227,7 +227,8 @@ function ArtemisIIPreLaunchPath() {
   }, []);
 
   useFrame((_, dt) => {
-    if (matRef.current) matRef.current.dashOffset -= dt * 0.18;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (matRef.current) (matRef.current as any).dashOffset -= dt * 0.18;
   });
 
   return <primitive object={line} />;
