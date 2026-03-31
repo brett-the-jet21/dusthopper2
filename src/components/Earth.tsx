@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useMemo, Suspense } from "react";
+import { useRef, useMemo, Suspense, Component } from "react";
+import type { ReactNode } from "react";
 import { useFrame, useLoader } from "@react-three/fiber";
 import { TextureLoader } from "three";
 import * as THREE from "three";
@@ -162,6 +163,26 @@ function EarthFallback({ radius }: { radius: number }) {
   );
 }
 
+/** Catches useLoader failures (CORS, 404, network) and shows the fallback sphere */
+class EarthErrorBoundary extends Component<
+  { children: ReactNode; radius: number },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode; radius: number }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  render() {
+    if (this.state.hasError) {
+      return <EarthFallback radius={this.props.radius} />;
+    }
+    return this.props.children;
+  }
+}
+
 export default function Earth({
   radius = 2,
   onClick,
@@ -172,8 +193,10 @@ export default function Earth({
   showKSC?: boolean;
 }) {
   return (
-    <Suspense fallback={<EarthFallback radius={radius} />}>
-      <EarthInner radius={radius} onClick={onClick} showKSC={showKSC} />
-    </Suspense>
+    <EarthErrorBoundary radius={radius}>
+      <Suspense fallback={<EarthFallback radius={radius} />}>
+        <EarthInner radius={radius} onClick={onClick} showKSC={showKSC} />
+      </Suspense>
+    </EarthErrorBoundary>
   );
 }

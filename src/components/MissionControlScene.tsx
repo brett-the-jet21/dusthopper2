@@ -24,11 +24,14 @@ class SceneErrorBoundary extends Component<
   static getDerivedStateFromError() {
     return { hasError: true };
   }
+  componentDidCatch(error: Error) {
+    // Log for diagnostics — check browser console if scene is blank
+    console.error("[SceneErrorBoundary]", error?.message ?? error);
+  }
   render() {
     if (this.state.hasError) {
-      return (
-        <div style={{ width: "100%", height: "100%", background: "#000" }} />
-      );
+      // Keep the black background; HUD overlays remain visible
+      return <div style={{ width: "100%", height: "100%", background: "#000" }} />;
     }
     return this.props.children;
   }
