@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useMemo, useCallback, Component, ReactNode } from "react";
+import { useRef, useMemo, useCallback, useEffect, Component, ReactNode } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls, Stars } from "@react-three/drei";
 import { Line2 } from "three-stdlib";
@@ -476,6 +476,22 @@ function CameraController({
       .add(radial.multiplyScalar(0.8))
       .add(camUp.multiplyScalar(0.3));
   }
+
+  // Zoom in/out via +/− HUD buttons
+  const { camera } = useThree();
+  useEffect(() => {
+    const handler = (e: Event) => {
+      if (!controlsRef.current) return;
+      const delta = (e as CustomEvent<{ delta: number }>).detail.delta;
+      const target = controlsRef.current.target.clone();
+      const dir    = camera.position.clone().sub(target);
+      dir.multiplyScalar(delta);
+      camera.position.copy(target.clone().add(dir));
+      controlsRef.current.update();
+    };
+    window.addEventListener("dusthopper-zoom", handler);
+    return () => window.removeEventListener("dusthopper-zoom", handler);
+  }, [camera]);
 
   useFrame((state, dt) => {
     if (!controlsRef.current) return;
