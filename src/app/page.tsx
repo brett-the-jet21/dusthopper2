@@ -28,6 +28,16 @@ const MissionControlScene = dynamic(
 
 export default function Home() {
   const [trackTarget, setTrackTarget] = useState<TrackTarget>("overview");
+  const { setLaunchActive, launchSequenceActive } = useMissionStore();
+
+  // Auto-trigger 3D launch sequence exactly at T-0
+  useEffect(() => {
+    if (launchSequenceActive) return;
+    const check = () => { if (Date.now() >= ARTEMIS_II_LAUNCH) setLaunchActive(true); };
+    check();
+    const id = setInterval(check, 500);
+    return () => clearInterval(id);
+  }, [launchSequenceActive, setLaunchActive]);
 
   return (
     <div className="h-screen w-screen bg-black text-white overflow-hidden relative">
@@ -52,6 +62,7 @@ export default function Home() {
           <h1 className="text-sm sm:text-xl font-bold tracking-widest uppercase text-white/90">
             Mission Control
           </h1>
+          <LiveBadge />
         </div>
         <TminusCountdown />
       </header>
@@ -175,56 +186,105 @@ function LaunchButton() {
 }
 
 /* ------------------------------------------------------------------
-   Artemis II T-minus countdown
+   Artemis II countdown — hero display
    ------------------------------------------------------------------ */
 const ARTEMIS_II_LAUNCH = new Date("2026-04-01T22:24:00Z").getTime();
 
-function TminusCountdown() {
-  const [parts, setParts] = useState({ d: 0, h: 0, m: 0, s: 0, launched: false });
+function getCountdownState() {
+  const now  = Date.now();
+  const diff = ARTEMIS_II_LAUNCH - now;
+  const launched = diff <= 0;
+  const abs = Math.abs(diff);
+  return {
+    launched,
+    d: Math.floor(abs / 86400000),
+    h: Math.floor((abs % 86400000) / 3600000),
+    m: Math.floor((abs % 3600000) / 60000),
+    s: Math.floor((abs % 60000) / 1000),
+  };
+}
 
+function TminusCountdown() {
+  const [cs, setCs] = useState(getCountdownState);
   useEffect(() => {
-    const tick = () => {
-      const diff = ARTEMIS_II_LAUNCH - Date.now();
-      if (diff <= 0) {
-        setParts({ d: 0, h: 0, m: 0, s: 0, launched: true });
-        return;
-      }
-      setParts({
-        d: Math.floor(diff / 86400000),
-        h: Math.floor((diff % 86400000) / 3600000),
-        m: Math.floor((diff % 3600000) / 60000),
-        s: Math.floor((diff % 60000) / 1000),
-        launched: false,
-      });
-    };
-    tick();
-    const id = setInterval(tick, 1000);
+    const id = setInterval(() => setCs(getCountdownState()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  const pad = (n: number) => String(n).padStart(2, "0");
+  const pad  = (n: number) => String(n).padStart(2, "0");
+  const urgent = !cs.launched && cs.d === 0;                 // < 1 day remaining
+  const finalMin = !cs.launched && cs.d === 0 && cs.h === 0; // < 1 hour remaining
+  const mainColor = cs.launched ? "#ff8800" : (urgent ? "#ff4400" : "#00ff88");
+  const secColor  = finalMin ? "#ff4400" : (cs.launched ? "#ff8800" : "#ffffff");
+  const glow = `0 0 18px ${mainColor}99, 0 0 36px ${mainColor}44`;
 
   return (
-    <div className="mt-0.5 ml-5 sm:ml-6 flex items-center gap-1.5">
-      {parts.launched ? (
-        <span className="text-[9px] sm:text-[10px] tracking-wider uppercase" style={{ color: "#FF6B00" }}>
-          ARTEMIS II — LIFTOFF
-        </span>
-      ) : (
-        <>
-          <span className="text-[9px] sm:text-[10px] text-white/30 tracking-wider uppercase">T−</span>
-          <span
-            className="text-[9px] sm:text-[11px] font-bold tracking-widest"
-            style={{ color: "#00ff88", fontFamily: "monospace" }}
-          >
-            {pad(parts.d)}:{pad(parts.h)}:{pad(parts.m)}:{pad(parts.s)}
-          </span>
-          <span className="text-[9px] sm:text-[10px] text-white/30 tracking-wider uppercase">
-            ARTEMIS II
-          </span>
-        </>
-      )}
+    <div className="mt-1 ml-5 sm:ml-6 flex items-center gap-1">
+      {/* T− / T+ label */}
+      <span style={{ fontFamily: "monospace", fontSize: 10, color: "rgba(255,255,255,0.35)", letterSpacing: 1 }}>
+        {cs.launched ? "T+" : "T−"}
+      </span>
+
+      {/* Digit blocks */}
+      <div style={{ display: "flex", alignItems: "center", gap: 1, fontFamily: "monospace", fontWeight: 900 }}>
+        {cs.d > 0 && (
+          <>
+            <span style={{ fontSize: 15, color: mainColor, textShadow: glow }}>{pad(cs.d)}</span>
+            <span style={{ fontSize: 9, color: mainColor, opacity: 0.55, marginRight: 2 }}>D</span>
+          </>
+        )}
+        <span style={{ fontSize: cs.d === 0 ? 20 : 15, color: mainColor, textShadow: glow }}>{pad(cs.h)}</span>
+        <span style={{ fontSize: 9, color: mainColor, opacity: 0.5 }}>H</span>
+        <span style={{ fontSize: cs.d === 0 ? 20 : 15, color: mainColor, textShadow: glow, marginLeft: 1 }}>{pad(cs.m)}</span>
+        <span style={{ fontSize: 9, color: mainColor, opacity: 0.5 }}>M</span>
+        {/* Seconds — white and larger when < 1 hour */}
+        <span style={{
+          fontSize: finalMin ? 24 : (cs.d === 0 ? 20 : 15),
+          color: secColor,
+          textShadow: finalMin ? `0 0 14px ${secColor}cc` : `0 0 10px ${secColor}88`,
+          minWidth: "2ch",
+          display: "inline-block",
+          marginLeft: 1,
+          transition: "font-size 0.15s ease",
+        }}>{pad(cs.s)}</span>
+        <span style={{ fontSize: 9, color: mainColor, opacity: 0.5 }}>S</span>
+      </div>
+
+      {/* Mission label */}
+      <span style={{
+        fontFamily: "monospace",
+        fontSize: 9,
+        letterSpacing: 1,
+        color: cs.launched ? "#ff8800" : "rgba(255,255,255,0.28)",
+        marginLeft: 4,
+        textTransform: "uppercase",
+      }}>
+        {cs.launched ? "ARTEMIS II — IN FLIGHT 🚀" : "ARTEMIS II"}
+      </span>
     </div>
+  );
+}
+
+/* Live badge — pulsing red in header */
+function LiveBadge() {
+  return (
+    <span
+      className="animate-pulse"
+      style={{
+        background: "#cc2200",
+        color: "#fff",
+        padding: "2px 6px",
+        borderRadius: 3,
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: 1,
+        boxShadow: "0 0 8px #ff440099",
+        marginLeft: 2,
+        fontFamily: "monospace",
+      }}
+    >
+      LIVE
+    </span>
   );
 }
 

@@ -5,15 +5,34 @@ import { useMissionStore } from '@/lib/store/missionStore';
 
 /* Artemis II launch: April 1 2026 22:24 UTC */
 const ARTEMIS_II_LAUNCH_MS = new Date('2026-04-01T22:24:00Z').getTime();
-const MOON_DIST_AVG = 384400; // km
 
-function formatMET(ms: number) {
+function formatTMinus(ms: number) {
   const s = Math.floor(ms / 1000);
-  const d = Math.floor(s / 86400);
-  const h = Math.floor((s % 86400) / 3600);
+  const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  return `${d}d ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `−${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+
+function formatTPlus(ms: number) {
+  const s = Math.floor(ms / 1000);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return `+${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+
+function getMissionPhase(metSec: number): string {
+  if (metSec < 0)    return "PRE-LAUNCH";
+  if (metSec < 10)   return "IGNITION";
+  if (metSec < 60)   return "LIFTOFF";
+  if (metSec < 126)  return "MAX-Q";
+  if (metSec < 510)  return "SRB SEPARATION";
+  if (metSec < 520)  return "CORE SEPARATION";
+  if (metSec < 600)  return "ICPS IGNITION";
+  if (metSec < 3600) return "PARKING ORBIT";
+  if (metSec < 7200) return "TLI BURN";
+  return "TRANS-LUNAR COAST";
 }
 
 // ── Constant cyan palette for all missions ──────────────────────────
@@ -27,20 +46,19 @@ export function TelemetryPanel() {
   const { missions, trackedMissionId, showTelemetry } = useMissionStore();
   const [collapsed, setCollapsed] = useState(false);
   const [met, setMet] = useState(0);
-  const [missionDay, setMissionDay] = useState(1);
-  const [moonDist, setMoonDist] = useState(MOON_DIST_AVG);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isArtemis = trackedMissionId === 'artemis';
+  const [launched, setLaunched] = useState(Date.now() >= ARTEMIS_II_LAUNCH_MS);
 
   useEffect(() => {
     if (!isArtemis) return;
     const tick = () => {
-      const now = Date.now();
+      const now  = Date.now();
       const diff = ARTEMIS_II_LAUNCH_MS - now;
-      setMet(diff > 0 ? diff : 0);          // repurpose met as T-minus ms when pre-launch
-      setMissionDay(Math.floor(-diff / 86400000) + 1);
-      setMoonDist(MOON_DIST_AVG + Math.sin(now / 300000) * 1800);
+      const isLaunched = diff <= 0;
+      setLaunched(isLaunched);
+      setMet(isLaunched ? -diff : diff); // post-launch: MET ms; pre-launch: T-minus ms
     };
     tick();
     tickRef.current = setInterval(tick, 1000);
@@ -131,20 +149,25 @@ export function TelemetryPanel() {
           {isArtemis ? (
             <>
               <Row label="MISSION"    value="Artemis II — SLS/Orion" />
-              <Row label="PHASE"      value="PRE-LAUNCH" bright />
+              <Row label="PHASE"      value={getMissionPhase(launched ? met / 1000 : -1)} bright />
+              <Row label="STATUS"     value={launched ? "🚀 IN FLIGHT" : "🔴 LAUNCH IMMINENT"} green />
               <Sep />
               <Row label="VEHICLE"    value="SLS Block 1 + Orion" />
-              <Row label="LAUNCH SITE" value="LC-39B, KSC" />
-              <Row label="INCLINATION" value="28.5°" />
+              <Row label="LAUNCH PAD" value="LC-39B, KSC Florida" />
+              <Row label="WEATHER"    value="80% GO ✅" />
               <Sep />
-              <Row label="CREW"       value="4  (Reid Wiseman, CDR)" bright />
-              <Row label="ORBIT"      value="185 km parking orbit" />
-              <Row label="TARGET"     value="Free-return lunar flyby" />
+              <Row label="CREW"       value="Wiseman · Glover · Koch · Hansen" bright />
+              <Row label="TRAJECTORY" value="Free-Return Lunar Flyby" />
+              <Row label="DESTINATION" value="Lunar Flyby ~370,000 km" />
+              <Row label="DURATION"   value="~10 days" />
               <Sep />
-              <Row label="T-MINUS"    value={`−${formatMET(met)}`} mono />
-              <Row label="LIFTOFF"    value="01 Apr 2026  22:24 UTC" />
-              <Sep />
-              <Row label="STATUS"     value="GO FOR LAUNCH" green />
+              {launched ? (
+                <Row label="MET"      value={formatTPlus(met)} mono />
+              ) : (
+                <Row label="T-MINUS"  value={formatTMinus(met)} mono />
+              )}
+              <Row label="LIFTOFF"    value="Apr 1, 2026 · 22:24 UTC" />
+              <Row label="6:24 PM EDT" value="Kennedy Space Center" />
             </>
           ) : (
             <>
