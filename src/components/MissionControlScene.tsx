@@ -72,6 +72,139 @@ export const STARLINK_ORBIT_R = EARTH_SCENE_R + (550  / EARTH_KM) * EARTH_SCENE_
 export const STARLINK_INCL    = 53    * (Math.PI / 180);
 const STARLINK_ANG_VEL        = (2 * Math.PI) / (95.6  * 60);
 
+/* ===================================================================
+   Artemis II mission timeline & trajectory
+   =================================================================== */
+const ARTEMIS_LAUNCH_MS       = new Date("2026-04-01T22:24:00Z").getTime();
+const MET_TLI_S               = 2 * 3600;      // T+2h  — TLI burn / end of parking orbit
+const MET_FLYBY_S             = 130 * 3600;    // T+130h — lunar closest approach
+const MET_FLYBY_END_S         = 136 * 3600;    // T+136h — post-flyby departure
+const MET_MISSION_S           = 240 * 3600;    // T+240h — splashdown
+const PARKING_ORBIT_PERIOD_S  = 5556;          // 92.6 min — 185 km circular orbit
+
+// Same formula as Moon.tsx; reproduced here so we can query any epoch
+function getMoonPositionAt(epochMs: number): THREE.Vector3 {
+  const JD  = epochMs / 86400000 + 2440587.5;
+  const d   = JD - 2451545.0;
+  const lon = ((218.316 + 13.176396 * d) % 360) * (Math.PI / 180);
+  const inc = 5.14 * (Math.PI / 180);
+  return new THREE.Vector3(
+    16.7 * Math.cos(lon),
+    16.7 * Math.sin(inc) * Math.sin(lon),
+    16.7 * Math.sin(lon),
+  );
+}
+
+interface ArtemisCurves {
+  b1: THREE.Vector3;
+  b2: THREE.Vector3;
+  outCurve: THREE.CatmullRomCurve3;
+  flyCurve: THREE.CatmullRomCurve3;
+  retCurve: THREE.CatmullRomCurve3;
+}
+let _artemisCurves: ArtemisCurves | null = null;
+
+function getArtemisCurves(): ArtemisCurves {
+  if (_artemisCurves) return _artemisCurves;
+
+  const R    = ARTEMIS_II_ORBIT_R;   // ~2.058 scene units
+  const incl = ARTEMIS_II_INCL;      // 28.5°
+
+  // Moon at flyby — spacecraft must arrive HERE at T+130h
+  const Mfly  = getMoonPositionAt(ARTEMIS_LAUNCH_MS + MET_FLYBY_S * 1000);
+  const mfDist = Mfly.length();                                      // ≈16.7
+  const mfDir  = Mfly.clone().normalize();                           // Earth→Moon at flyby
+  const mfTang = new THREE.Vector3(-Mfly.z, 0, Mfly.x).normalize(); // Moon prograde (CCW)
+
+  // Orbital-plane basis from Moon's flyby direction
+  // b1 = TLI injection direction (Moon projected onto equatorial XZ)
+  const mfxz   = new THREE.Vector3(Mfly.x, 0, Mfly.z).normalize();
+  const perpxz = new THREE.Vector3(-Mfly.z, 0, Mfly.x).normalize();
+  const b1 = mfxz.clone();
+  const b2 = new THREE.Vector3(
+    perpxz.x * Math.cos(incl),
+    Math.sin(incl),
+    perpxz.z * Math.cos(incl),
+  ).normalize();
+
+  // TLI injection point: on parking orbit in direction of Moon at flyby
+  const tliPt = b1.clone().multiplyScalar(R);
+
+  // ── Outbound coast: TLI → lunar approach ────────────────────────
+  // Arrive slightly prograde of Moon (Moon is moving, spacecraft leads it)
+  const approachPt = Mfly.clone()
+    .addScaledVector(mfTang, 0.90)
+    .addScaledVector(mfDir, -0.30);
+
+  const outCurve = new THREE.CatmullRomCurve3([
+    tliPt,
+    b1.clone().multiplyScalar(mfDist * 0.20).addScaledVector(mfTang, mfDist * 0.07),
+    b1.clone().multiplyScalar(mfDist * 0.55).addScaledVector(mfTang, mfDist * 0.14),
+    approachPt,
+  ], false, "catmullrom", 0.5);
+
+  // ── Lunar flyby: prograde approach → far-side → retrograde exit ──
+  // Far-side periapsis: ~0.7 su beyond Moon center (away from Earth)
+  const farSidePt = Mfly.clone().addScaledVector(mfDir, 0.70);
+  // Retrograde exit: trailing side
+  const exitPt = Mfly.clone()
+    .addScaledVector(mfTang, -0.90)
+    .addScaledVector(mfDir, -0.15);
+
+  const flyCurve = new THREE.CatmullRomCurve3([
+    approachPt,
+    Mfly.clone().addScaledVector(mfTang, 0.35).addScaledVector(mfDir, 0.40),
+    farSidePt,
+    Mfly.clone().addScaledVector(mfTang, -0.35).addScaledVector(mfDir, 0.40),
+    exitPt,
+  ], false, "catmullrom", 0.5);
+
+  // ── Return coast: retrograde exit → Earth ───────────────────────
+  const retArrival = b1.clone().multiplyScalar(R * 1.01);
+
+  const retCurve = new THREE.CatmullRomCurve3([
+    exitPt,
+    b1.clone().multiplyScalar(mfDist * 0.52).addScaledVector(mfTang, -mfDist * 0.12),
+    b1.clone().multiplyScalar(mfDist * 0.18).addScaledVector(mfTang, -mfDist * 0.04),
+    retArrival,
+  ], false, "catmullrom", 0.5);
+
+  _artemisCurves = { b1, b2, outCurve, flyCurve, retCurve };
+  return _artemisCurves;
+}
+
+/** Map Mission Elapsed Time (seconds) → scene position on Artemis II path */
+function getArtemisPosition(metSec: number): THREE.Vector3 {
+  const { b1, b2, outCurve, flyCurve, retCurve } = getArtemisCurves();
+  const R   = ARTEMIS_II_ORBIT_R;
+  const angV = 2 * Math.PI / PARKING_ORBIT_PERIOD_S;
+  const baseTh = -(MET_TLI_S * angV); // so that at metSec=MET_TLI_S, angle=0 → b1*R
+
+  // Parking orbit (0 → TLI)
+  if (metSec <= MET_TLI_S) {
+    const th = baseTh + Math.max(0, metSec) * angV;
+    return b1.clone().multiplyScalar(Math.cos(th) * R)
+             .addScaledVector(b2, Math.sin(th) * R);
+  }
+  // Outbound coast
+  if (metSec <= MET_FLYBY_S) {
+    const t = (metSec - MET_TLI_S) / (MET_FLYBY_S - MET_TLI_S);
+    return outCurve.getPointAt(Math.min(t, 1));
+  }
+  // Lunar flyby
+  if (metSec <= MET_FLYBY_END_S) {
+    const t = (metSec - MET_FLYBY_S) / (MET_FLYBY_END_S - MET_FLYBY_S);
+    return flyCurve.getPointAt(Math.min(t, 1));
+  }
+  // Return coast
+  if (metSec <= MET_MISSION_S) {
+    const t = (metSec - MET_FLYBY_END_S) / (MET_MISSION_S - MET_FLYBY_END_S);
+    return retCurve.getPointAt(Math.min(t, 1));
+  }
+  // Post-splashdown — rest at Earth
+  return b1.clone().multiplyScalar(R);
+}
+
 /* Per-mission neon colors — maximum saturation */
 const COLORS = {
   artemis: "#FF8800",
@@ -300,103 +433,106 @@ function ArtemisIIPreLaunchPath() {
 }
 
 /* ===================================================================
-   Artemis II trans-lunar trajectory — free-return horseshoe path
-   Earth → TLI → Trans-Lunar Coast → Lunar Flyby (far side) → Return → Earth
+   Artemis II trans-lunar trajectory — accurate multi-segment path
+   Outbound coast → Lunar flyby (far-side) → Return coast
+   (Parking-orbit ring rendered separately by ArtemisIIPreLaunchPath)
    =================================================================== */
 function ArtemisIITrajectory() {
-  const matRef = useRef<LineMaterial | null>(null);
-  const { gl } = useThree();
+  const matRefs = useRef<(LineMaterial | null)[]>([null, null, null]);
+  const { gl }  = useThree();
 
-  const line = useMemo(() => {
-    const M = getMoonPosition();            // live Moon position in scene coords
-    const MOON_DIST = M.length();          // ~16.7 scene units
-    const moonDir  = M.clone().normalize(); // Earth → Moon unit vector
-    // Lunar prograde direction: Moon moves CCW viewed from north
-    // tangent = derivative of (cos θ, sin·incl·sin θ, sin θ) ≈ (-sin θ, 0, cos θ)
-    const moonTang = new THREE.Vector3(-M.z, 0, M.x).normalize();
+  const lines = useMemo(() => {
+    const { outCurve, flyCurve, retCurve } = getArtemisCurves();
 
-    const EARTH_R = 2.0;
+    const toFlat = (curve: THREE.CatmullRomCurve3, n: number) => {
+      const pts = curve.getPoints(n);
+      const f   = new Float32Array(pts.length * 3);
+      pts.forEach((p, i) => { f[i * 3] = p.x; f[i * 3 + 1] = p.y; f[i * 3 + 2] = p.z; });
+      return f;
+    };
 
-    // Free-return trajectory control points
-    // The spacecraft aims AHEAD of the current Moon (it leads ~60° because the Moon
-    // moves ~13.2°/day × 4.5 day transit). We approximate by leaning prograde.
-    const pts = [
-      // TLI injection — parking orbit, aimed toward Moon
-      moonDir.clone().multiplyScalar(EARTH_R * 1.015),
-
-      // Early outbound — lean prograde (intercept Moon's future position)
-      moonDir.clone().multiplyScalar(MOON_DIST * 0.18)
-        .addScaledVector(moonTang, MOON_DIST * 0.09),
-
-      // Mid-transit — continue curving prograde
-      moonDir.clone().multiplyScalar(MOON_DIST * 0.52)
-        .addScaledVector(moonTang, MOON_DIST * 0.16),
-
-      // Lunar approach — comes in from leading (prograde) side of Moon
-      M.clone()
-        .addScaledVector(moonTang, MOON_DIST * 0.18)
-        .addScaledVector(moonDir, -0.5),
-
-      // Far-side flyby — directly behind Moon from Earth's perspective
-      // ~8,900 km altitude → in scene: 8900/384400 × 16.7 ≈ 0.39 scene units from Moon center
-      M.clone().addScaledVector(moonDir, 0.6),
-
-      // Swing retrograde around Moon (exit on trailing side)
-      M.clone()
-        .addScaledVector(moonTang, -MOON_DIST * 0.14)
-        .addScaledVector(moonDir, 0.25),
-
-      // Return mid-transit
-      moonDir.clone().multiplyScalar(MOON_DIST * 0.48)
-        .addScaledVector(moonTang, -MOON_DIST * 0.09),
-
-      // Near-Earth return arc
-      moonDir.clone().multiplyScalar(MOON_DIST * 0.14)
-        .addScaledVector(moonTang, -MOON_DIST * 0.02),
-
-      // Earth arrival — slightly retrograde from TLI point
-      moonDir.clone().multiplyScalar(EARTH_R * 1.01)
-        .addScaledVector(moonTang, -EARTH_R * 0.06),
+    const segments = [
+      { flat: toFlat(outCurve, 200), dashSize: 0.24, gapSize: 0.12, opacity: 0.55 }, // outbound
+      { flat: toFlat(flyCurve,  80), dashSize: 0.08, gapSize: 0.04, opacity: 0.65 }, // flyby
+      { flat: toFlat(retCurve, 200), dashSize: 0.24, gapSize: 0.12, opacity: 0.45 }, // return
     ];
 
-    const curve  = new THREE.CatmullRomCurve3(pts, false, "catmullrom", 0.5);
-    const points = curve.getPoints(350);
-    const flat   = new Float32Array(points.length * 3);
-    points.forEach((p, i) => { flat[i * 3] = p.x; flat[i * 3 + 1] = p.y; flat[i * 3 + 2] = p.z; });
-
-    const geo = new LineGeometry();
-    geo.setPositions(flat);
-
-    const mat = new LineMaterial({
-      color: new THREE.Color(COLORS.artemis).getHex(),
-      linewidth: 1.0,
-      dashed: true,
-      dashSize: 0.22,
-      gapSize: 0.11,
-      dashOffset: 0,
-      transparent: true,
-      opacity: 0.55,
-      depthWrite: false,
-      resolution: new THREE.Vector2(gl.domElement.width, gl.domElement.height),
+    return segments.map((seg, i) => {
+      const geo = new LineGeometry();
+      geo.setPositions(seg.flat);
+      const mat = new LineMaterial({
+        color: new THREE.Color(COLORS.artemis).getHex(),
+        linewidth: 1.0,
+        dashed: true,
+        dashSize: seg.dashSize,
+        gapSize:  seg.gapSize,
+        dashOffset: 0,
+        transparent: true,
+        opacity: seg.opacity,
+        depthWrite: false,
+        resolution: new THREE.Vector2(gl.domElement.width, gl.domElement.height),
+      });
+      matRefs.current[i] = mat;
+      const l = new Line2(geo, mat);
+      l.computeLineDistances();
+      return l;
     });
-    matRef.current = mat;
-
-    const l = new Line2(geo, mat);
-    l.computeLineDistances();
-    return l;
   }, [gl]);
 
   useFrame((_, dt) => {
-    if (matRef.current) {
-      (matRef.current as any).dashOffset -= dt * 0.10;
-      matRef.current.resolution.set(
-        gl.domElement.width  * gl.getPixelRatio(),
-        gl.domElement.height * gl.getPixelRatio(),
-      );
-    }
+    const w = gl.domElement.width  * gl.getPixelRatio();
+    const h = gl.domElement.height * gl.getPixelRatio();
+    matRefs.current.forEach((m) => {
+      if (!m) return;
+      (m as any).dashOffset -= dt * 0.10;
+      m.resolution.set(w, h);
+    });
   });
 
-  return <primitive object={line} />;
+  return <>{lines.map((l, i) => <primitive key={i} object={l} />)}</>;
+}
+
+/* ===================================================================
+   Artemis II real-time spacecraft tracker dot
+   Maps current wall-clock time to position on the trajectory curves
+   =================================================================== */
+function ArtemisIISpacecraftTracker() {
+  const dotRef  = useRef<THREE.Mesh>(null);
+  const glowRef = useRef<THREE.Mesh>(null);
+
+  useFrame((state) => {
+    const metSec = (Date.now() - ARTEMIS_LAUNCH_MS) / 1000;
+    const pos    = getArtemisPosition(metSec);
+
+    dotRef.current?.position.copy(pos);
+    glowRef.current?.position.copy(pos);
+
+    // Pulse
+    const s = 1 + Math.sin(state.clock.elapsedTime * 3) * 0.25;
+    dotRef.current?.scale.setScalar(s);
+    glowRef.current?.scale.setScalar(s);
+  });
+
+  return (
+    <group>
+      {/* Core dot */}
+      <mesh ref={dotRef}>
+        <sphereGeometry args={[0.032, 8, 8]} />
+        <meshBasicMaterial color={COLORS.artemis} />
+      </mesh>
+      {/* Additive glow halo */}
+      <mesh ref={glowRef}>
+        <sphereGeometry args={[0.10, 8, 8]} />
+        <meshBasicMaterial
+          color={COLORS.artemis}
+          transparent
+          opacity={0.18}
+          blending={THREE.AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
+  );
 }
 
 /* ===================================================================
@@ -636,8 +772,9 @@ function SceneContent({
       {/* Artemis II pre-launch dashed orbit path */}
       <ArtemisIIPreLaunchPath />
 
-      {/* Artemis II trans-lunar free-return trajectory */}
+      {/* Artemis II trans-lunar free-return trajectory + real-time dot */}
       <ArtemisIITrajectory />
+      <ArtemisIISpacecraftTracker />
 
       {/* Neon glow orbit paths */}
       <GlowOrbitPath radius={ISS_ORBIT_R}      color={COLORS.iss}      inclination={ISS_INCL} />
