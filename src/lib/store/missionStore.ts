@@ -43,6 +43,8 @@ type MissionStore = {
   showEvents: boolean;
   showOrbits: boolean;
   hudOpacity: number;
+  launchSequenceActive: boolean;
+  setLaunchActive: (v: boolean) => void;
   addMission: (mission: MissionData) => void;
   removeMission: (id: string) => void;
   setActiveMission: (id: string) => void;
@@ -166,6 +168,8 @@ export const useMissionStore = create<MissionStore>((set) => ({
   showEvents: true,
   showOrbits: true,
   hudOpacity: 0.85,
+  launchSequenceActive: false,
+  setLaunchActive: (v) => set({ launchSequenceActive: v }),
   addMission: (mission) =>
     set((state) => {
       const newMissions = new Map(state.missions);
