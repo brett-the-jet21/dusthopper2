@@ -215,9 +215,9 @@ function GlowOrbitPath({
     geo.setPositions(flat);
     const mat = new LineMaterial({
       color: new THREE.Color(color).getHex(),
-      linewidth: 3,
+      linewidth: 1,
       transparent: true,
-      opacity: 1.0,
+      opacity: 0.5,
       depthWrite: false,
       resolution: new THREE.Vector2(gl.domElement.width, gl.domElement.height),
     });
@@ -230,7 +230,7 @@ function GlowOrbitPath({
     const halo = new THREE.Line(haloGeo, new THREE.LineBasicMaterial({
       color,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.2,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     }));
@@ -271,13 +271,13 @@ function ArtemisIIPreLaunchPath() {
     geo.setPositions(flat);
     const mat = new LineMaterial({
       color: new THREE.Color(COLORS.artemis).getHex(),
-      linewidth: 2.5,
+      linewidth: 1,
       dashed: true,
       dashSize: 0.10,
       gapSize: 0.07,
       dashOffset: 0,
       transparent: true,
-      opacity: 0.9,
+      opacity: 0.5,
       depthWrite: false,
       resolution: new THREE.Vector2(gl.domElement.width, gl.domElement.height),
     });
@@ -348,11 +348,11 @@ function CameraController({
 
   function staticOffset(t: TrackTarget): THREE.Vector3 {
     switch (t) {
-      case "earth":    return new THREE.Vector3(0, 1.5, 6.5);
+      case "earth":    return new THREE.Vector3(0, 2, 7);
       case "artemis":  return new THREE.Vector3(-1.5, 0.8, 4.5); // KSC-side close-up
       case "moon":     return new THREE.Vector3(0, 0.5, 2);
       case "sun":      return new THREE.Vector3(-30, 10, 20);
-      default:         return new THREE.Vector3(0, 1.5, 6.5);
+      default:         return new THREE.Vector3(0, 2, 7);
     }
   }
 
@@ -481,9 +481,8 @@ function SceneContent({
     <>
       {/* Environment */}
       <Stars radius={400} depth={80} count={8000} factor={2.5} saturation={0.1} fade={false} />
-      <ambientLight intensity={0.04} />
-      <directionalLight position={[80, 10, 0]} intensity={2.2} />
-      <pointLight position={[-20, 0, 0]} intensity={0.08} color="#2244ff" />
+      <ambientLight intensity={0.3} />
+      <directionalLight position={[10, 3, 5]} intensity={3.0} color="#ffffff" />
 
       {/* Celestial bodies */}
       <Earth radius={2} onClick={toEarth} showKSC />
@@ -545,7 +544,7 @@ export default function MissionControlScene({
   return (
     <SceneErrorBoundary>
       <Canvas
-        camera={{ position: [0, 1.5, 6.5], fov: 40, near: 0.001, far: 10000 }}
+        camera={{ position: [0, 2, 7], fov: 45, near: 0.01, far: 1000 }}
         style={{ width: "100%", height: "100%", background: "#000000" }}
         gl={{ antialias: true }}
         frameloop="always"
