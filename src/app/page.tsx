@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useMissionStore } from "@/lib/store/missionStore";
 import dynamic from "next/dynamic";
 import type { TrackTarget } from "@/components/MissionControlScene";
 import { MissionSelector } from "@/components/hud/MissionSelector";
@@ -64,8 +65,111 @@ export default function Home() {
       {/* ── Object target nav (below header, right side) ─────────── */}
       <TargetSelector current={trackTarget} onChange={setTrackTarget} />
 
+      {/* ── Launch control (artemis only) ───────────────────────────── */}
+      <LaunchButton />
+
       {/* ── Mission selector (bottom-center) ─────────────────────── */}
       <MissionSelector />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------
+   Artemis II Launch Control Button
+   ------------------------------------------------------------------ */
+function LaunchButton() {
+  const { activeMissionId, launchSequenceActive, setLaunchActive } = useMissionStore();
+  const [confirming, setConfirming] = useState(false);
+
+  if (activeMissionId !== "artemis") return null;
+
+  if (launchSequenceActive) {
+    return (
+      <div
+        className="fixed bottom-28 left-1/2 z-40"
+        style={{ transform: "translateX(-50%)" }}
+      >
+        <button
+          onClick={() => { setLaunchActive(false); setConfirming(false); }}
+          style={{
+            background: "rgba(0,0,0,0.7)",
+            border: "1px solid rgba(255,68,68,0.4)",
+            color: "rgba(255,100,100,0.7)",
+            fontFamily: "monospace",
+            fontSize: 10,
+            letterSpacing: 2,
+            padding: "6px 16px",
+            cursor: "pointer",
+          }}
+        >
+          RESET LAUNCH
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="fixed bottom-28 left-1/2 z-40"
+      style={{ transform: "translateX(-50%)" }}
+    >
+      {confirming ? (
+        <div className="flex items-center gap-2">
+          <span style={{ color: "#ff4444", fontFamily: "monospace", fontSize: 10, letterSpacing: 1 }}>
+            CONFIRM?
+          </span>
+          <button
+            onClick={() => { setLaunchActive(true); setConfirming(false); }}
+            style={{
+              background: "linear-gradient(135deg, #cc0000, #880000)",
+              border: "2px solid #ff4444",
+              color: "#fff",
+              fontFamily: "monospace",
+              fontWeight: 700,
+              fontSize: 11,
+              letterSpacing: 2,
+              padding: "8px 18px",
+              boxShadow: "0 0 20px #ff000066",
+              cursor: "pointer",
+            }}
+          >
+            LAUNCH
+          </button>
+          <button
+            onClick={() => setConfirming(false)}
+            style={{
+              background: "rgba(0,0,0,0.6)",
+              border: "1px solid rgba(255,255,255,0.2)",
+              color: "rgba(255,255,255,0.5)",
+              fontFamily: "monospace",
+              fontSize: 10,
+              letterSpacing: 1,
+              padding: "8px 14px",
+              cursor: "pointer",
+            }}
+          >
+            ABORT
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => setConfirming(true)}
+          style={{
+            background: "linear-gradient(135deg, #cc0000, #880000)",
+            border: "2px solid #ff4444",
+            color: "#fff",
+            fontFamily: "monospace",
+            fontWeight: 700,
+            fontSize: 11,
+            letterSpacing: 2,
+            padding: "10px 22px",
+            boxShadow: "0 0 20px #ff000066",
+            cursor: "pointer",
+          }}
+        >
+          🔴 INITIATE LAUNCH SEQUENCE
+        </button>
+      )}
     </div>
   );
 }

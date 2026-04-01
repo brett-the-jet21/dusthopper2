@@ -10,6 +10,7 @@ import * as THREE from "three";
 import Earth from "./Earth";
 import Moon from "./Moon";
 import Sun, { SUN_POSITION } from "./Sun";
+import { LaunchPadGroup, LC39B_PAD_BASE, ARTEMIS_CAM_BASE, getUTCRotation, applyYRotation } from "./LaunchPad";
 import { useMissionStore } from "@/lib/store/missionStore";
 import { twoline2satrec, propagate, gstime } from "satellite.js";
 
@@ -342,14 +343,23 @@ function CameraController({
       case "starship": return posRefs.starship.current.clone();
       case "starlink": return posRefs.starlink.current.clone();
       case "sun":      return SUN_POSITION.clone();
-      default:         return new THREE.Vector3(0, 0, 0); // earth / overview / artemis (pre-launch)
+      case "artemis": {
+        const utcRot = getUTCRotation();
+        return applyYRotation(LC39B_PAD_BASE, utcRot);
+      }
+      default:         return new THREE.Vector3(0, 0, 0);
     }
   }
 
   function staticOffset(t: TrackTarget): THREE.Vector3 {
     switch (t) {
       case "earth":    return new THREE.Vector3(0, 2, 7);
-      case "artemis":  return new THREE.Vector3(-1.5, 0.8, 4.5); // KSC-side close-up
+      case "artemis": {
+        const utcRot = getUTCRotation();
+        const padPos = applyYRotation(LC39B_PAD_BASE, utcRot);
+        const camPos = applyYRotation(ARTEMIS_CAM_BASE, utcRot);
+        return camPos.clone().sub(padPos);
+      }
       case "moon":     return new THREE.Vector3(0, 0.5, 2);
       case "sun":      return new THREE.Vector3(-30, 10, 20);
       default:         return new THREE.Vector3(0, 2, 7);
@@ -433,8 +443,8 @@ function CameraController({
       zoomSpeed={0.4}
       autoRotate={false}
       enablePan={false}
-      minDistance={2.8}
-      maxDistance={20}
+      minDistance={target === "artemis" ? 0.00005 : 2.8}
+      maxDistance={target === "artemis" ? 3 : 20}
       minPolarAngle={Math.PI * 0.1}
       maxPolarAngle={Math.PI * 0.9}
     />
@@ -486,6 +496,7 @@ function SceneContent({
 
       {/* Celestial bodies */}
       <Earth radius={2} onClick={toEarth} showKSC />
+      <LaunchPadGroup />
       <Moon sunDirection={sunDir} onClick={toMoon} positionRef={moonPosRef} />
       <Sun onClick={toSun} />
 
@@ -544,9 +555,9 @@ export default function MissionControlScene({
   return (
     <SceneErrorBoundary>
       <Canvas
-        camera={{ position: [0, 2, 7], fov: 45, near: 0.01, far: 1000 }}
+        camera={{ position: [0, 2, 7], fov: 45, near: 0.00001, far: 1000 }}
         style={{ width: "100%", height: "100%", background: "#000000" }}
-        gl={{ antialias: true }}
+        gl={{ antialias: true, logarithmicDepthBuffer: true }}
         frameloop="always"
       >
         <color attach="background" args={["#000000"]} />
